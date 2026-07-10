@@ -53,3 +53,10 @@ coverage
 .cache
 tmp
 temp
+
+# Local dev tooling (not product)
+.agents/
+.atl/
+.codegraph/
+.claude/skills/
+.husky/_/
