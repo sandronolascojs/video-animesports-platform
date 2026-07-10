@@ -1,0 +1,3 @@
+{
+  "extends": "@video-platform-challenge/config/tsconfig.base.json"
+}
