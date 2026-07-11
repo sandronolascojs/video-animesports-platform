@@ -1,0 +1,563 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Hover-capable pointer gate — see emil-design-eng "Touch device hover states" */
+@custom-variant can-hover {
+	@media (hover: hover) and (pointer: fine) {
+		&:hover {
+			@slot;
+		}
+	}
+}
+
+@theme inline {
+	--font-sans: var(--font-sans);
+	--font-mono: var(--font-mono);
+	--font-heading: var(--font-sans);
+
+	--radius-sm: calc(var(--radius) - 4px);
+
+	--radius-md: calc(var(--radius) - 2px);
+
+	--radius-lg: var(--radius);
+
+	--radius-xl: calc(var(--radius) + 4px);
+
+	--radius-2xl: calc(var(--radius) + 8px);
+
+	--radius-3xl: calc(var(--radius) + 12px);
+
+	--radius-4xl: calc(var(--radius) + 16px);
+
+	--color-background: var(--background);
+
+	--color-foreground: var(--foreground);
+
+	--color-card: var(--card);
+
+	--color-card-foreground: var(--card-foreground);
+
+	--color-popover: var(--popover);
+
+	--color-popover-foreground: var(--popover-foreground);
+
+	--color-primary: var(--primary);
+
+	--color-primary-foreground: var(--primary-foreground);
+
+	--color-secondary: var(--secondary);
+
+	--color-secondary-foreground: var(--secondary-foreground);
+
+	--color-muted: var(--muted);
+
+	--color-muted-foreground: var(--muted-foreground);
+
+	--color-accent: var(--accent);
+
+	--color-accent-foreground: var(--accent-foreground);
+
+	--color-destructive: var(--destructive);
+
+	--color-border: var(--border);
+
+	--color-input: var(--input);
+
+	--color-ring: var(--ring);
+
+	--color-chart-1: var(--chart-1);
+
+	--color-chart-2: var(--chart-2);
+
+	--color-chart-3: var(--chart-3);
+
+	--color-chart-4: var(--chart-4);
+
+	--color-chart-5: var(--chart-5);
+
+	--color-sidebar: var(--sidebar);
+
+	--color-sidebar-foreground: var(--sidebar-foreground);
+
+	--color-sidebar-primary: var(--sidebar-primary);
+
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+
+	--color-sidebar-accent: var(--sidebar-accent);
+
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+
+	--color-sidebar-border: var(--sidebar-border);
+
+	--color-sidebar-ring: var(--sidebar-ring);
+
+	--animate-shimmer-slide: shimmer-slide var(--speed) ease-in-out infinite
+		alternate;
+
+	--animate-spin-around: spin-around calc(var(--speed) * 2) infinite linear;
+	@keyframes shimmer-slide {
+		to {
+			transform: translate(calc(100cqw - 100%), 0);
+		}
+	}
+	@keyframes spin-around {
+		0% {
+			transform: translateZ(0) rotate(0);
+		}
+		15%,
+		35% {
+			transform: translateZ(0) rotate(90deg);
+		}
+		65%,
+		85% {
+			transform: translateZ(0) rotate(270deg);
+		}
+		100% {
+			transform: translateZ(0) rotate(360deg);
+		}
+	}
+}
+
+:root {
+	--radius: 0.625rem;
+	--card: oklch(1 0 0);
+	--card-foreground: oklch(0.145 0 0);
+	--popover: oklch(1 0 0);
+	--popover-foreground: oklch(0.145 0 0);
+	--primary: oklch(0.205 0 0);
+	--primary-foreground: oklch(0.985 0 0);
+	--secondary: oklch(0.97 0 0);
+	--secondary-foreground: oklch(0.205 0 0);
+	--muted: oklch(0.97 0 0);
+	--muted-foreground: oklch(0.556 0 0);
+	--accent: oklch(0.97 0 0);
+	--accent-foreground: oklch(0.205 0 0);
+	--destructive: oklch(0.577 0.245 27.325);
+	--border: oklch(0.922 0 0);
+	--input: oklch(0.922 0 0);
+	--ring: oklch(0.708 0 0);
+	/*
+	 * Chart/gradient accents — the ONLY chroma in the theme (docs/studio-ui.md
+	 * "mapped to OUR theme tokens, not their lime"). Every scene/character/
+	 * location/version/asset/template thumbnail in libs/mock renders as a
+	 * two-stop gradient between two of these, so real hue here is load-
+	 * bearing: a grayscale chart palette (the shadcn default this replaced)
+	 * makes every "media" surface in the app read as a flat gray blob.
+	 */
+	--chart-1: oklch(0.58 0.19 275);
+	--chart-2: oklch(0.72 0.14 220);
+	--chart-3: oklch(0.75 0.15 80);
+	--chart-4: oklch(0.65 0.19 20);
+	--chart-5: oklch(0.65 0.16 155);
+	--sidebar: oklch(0.985 0 0);
+	--sidebar-foreground: oklch(0.145 0 0);
+	--sidebar-primary: oklch(0.205 0 0);
+	--sidebar-primary-foreground: oklch(0.985 0 0);
+	--sidebar-accent: oklch(0.97 0 0);
+	--sidebar-accent-foreground: oklch(0.205 0 0);
+	--sidebar-border: oklch(0.922 0 0);
+	--sidebar-ring: oklch(0.708 0 0);
+	--background: oklch(1 0 0);
+	--foreground: oklch(0.145 0 0);
+}
+
+.dark {
+	/*
+	 * `--background` deliberately sits well below `--sidebar`/`--card` (0.11
+	 * vs 0.22) so floating panels (surface-panel, composer-shell) visibly pop
+	 * off the page instead of blending into it — the previous 0.145/0.205
+	 * pairing read as a single flat black once rendered (no shadow, a 10%
+	 * white border alone isn't enough separation at that gap).
+	 */
+	--background: oklch(0.11 0 0);
+	--foreground: oklch(0.985 0 0);
+	--card: oklch(0.22 0 0);
+	--card-foreground: oklch(0.985 0 0);
+	--popover: oklch(0.22 0 0);
+	--popover-foreground: oklch(0.985 0 0);
+	--primary: oklch(0.922 0 0);
+	--primary-foreground: oklch(0.205 0 0);
+	--secondary: oklch(0.27 0 0);
+	--secondary-foreground: oklch(0.985 0 0);
+	--muted: oklch(0.24 0 0);
+	--muted-foreground: oklch(0.708 0 0);
+	--accent: oklch(0.27 0 0);
+	--accent-foreground: oklch(0.985 0 0);
+	--destructive: oklch(0.704 0.191 22.216);
+	--border: oklch(1 0 0 / 12%);
+	--input: oklch(1 0 0 / 15%);
+	--ring: oklch(0.556 0 0);
+	--chart-1: oklch(0.66 0.19 275);
+	--chart-2: oklch(0.78 0.13 220);
+	--chart-3: oklch(0.8 0.14 80);
+	--chart-4: oklch(0.7 0.19 20);
+	--chart-5: oklch(0.72 0.15 155);
+	--sidebar: oklch(0.22 0 0);
+	--sidebar-foreground: oklch(0.985 0 0);
+	--sidebar-primary: oklch(0.488 0.243 264.376);
+	--sidebar-primary-foreground: oklch(0.985 0 0);
+	--sidebar-accent: oklch(0.27 0 0);
+	--sidebar-accent-foreground: oklch(0.985 0 0);
+	--sidebar-border: oklch(1 0 0 / 12%);
+	--sidebar-ring: oklch(0.556 0 0);
+}
+
+:root {
+	/* Studio UI motion — see docs/studio-ui.md "Design language" table */
+	--ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+	--ease-signature: cubic-bezier(0.32, 0.72, 0, 1);
+	--ease-spring-soft: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+	body {
+		@apply bg-background text-foreground;
+	}
+	html {
+		@apply font-sans;
+	}
+}
+
+@layer components {
+	/* Gradient used across the platform (edges, sliders, etc.) */
+	.gradient-brand {
+		background: linear-gradient(
+			90deg,
+			var(--chart-1),
+			var(--chart-2),
+			var(--chart-4)
+		);
+	}
+
+	/* Gradient text */
+	.gradient-brand-text {
+		background: linear-gradient(
+			90deg,
+			var(--chart-1),
+			var(--chart-2),
+			var(--chart-4)
+		);
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		background-clip: text;
+	}
+}
+
+@layer utilities {
+	/* Animated border pulse for RAG indexing status */
+	@keyframes border-pulse {
+		0%,
+		100% {
+			border-color: rgb(56, 189, 248, 0.3); /* sky-400 at 30% */
+			box-shadow: 0 0 0 0 rgb(56, 189, 248, 0);
+		}
+		50% {
+			border-color: rgb(56, 189, 248, 0.6); /* sky-400 at 60% */
+			box-shadow: 0 0 8px 0 rgb(56, 189, 248, 0.2);
+		}
+	}
+
+	.animate-border-pulse {
+		animation: border-pulse 2s ease-in-out infinite;
+	}
+
+	.scrollbar-hide {
+		-ms-overflow-style: none; /* IE and Edge */
+		scrollbar-width: none; /* Firefox */
+	}
+	.scrollbar-hide::-webkit-scrollbar {
+		display: none; /* Chrome, Safari and Opera */
+	}
+
+	/* Ensure horizontal scroll works */
+	.scrollbar-hide {
+		overflow-x: auto;
+		overflow-y: hidden;
+	}
+
+	/* Custom scrollbar utilities */
+	.scrollbar-thin {
+		scrollbar-width: thin; /* Firefox */
+	}
+	.scrollbar-thin::-webkit-scrollbar {
+		width: 6px;
+		height: 6px;
+	}
+	.scrollbar-thin::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	.scrollbar-thin::-webkit-scrollbar-thumb {
+		background: var(--border);
+		border-radius: 3px;
+	}
+	.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+		background: var(--muted-foreground);
+	}
+
+	/* Scrollbar track transparent */
+	.scrollbar-track-transparent::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	/* Scrollbar thumb styling */
+	.scrollbar-thumb-border\/50::-webkit-scrollbar-thumb {
+		background: oklch(from var(--border) l c h / 50%);
+	}
+	.hover\:scrollbar-thumb-border\/80:hover::-webkit-scrollbar-thumb {
+		background: oklch(from var(--border) l c h / 80%);
+	}
+}
+
+/*
+ * Studio UI design language — recipes extracted from the Higgsfield reference
+ * markup (docs/studio-ui.md "Design language" table), mapped onto OUR
+ * radix-nova theme tokens. Never hardcode brand colors here — accent
+ * gradients are parameterized (jewel-chip) or read the primary token
+ * (cta-glow). Literal white/black values below are lighting effects (sheens,
+ * highlights, drop shadows, caption scrims), not brand colors, and are kept
+ * as documented since they simulate a light source / guarantee legibility
+ * over arbitrary thumbnails regardless of theme.
+ */
+
+/* Floating panel surface — sidebar/main as cards, not full-bleed chrome */
+@utility surface-panel {
+	overflow: hidden;
+	border-radius: var(--radius-2xl);
+	border: 1px solid var(--sidebar-border);
+	background-color: var(--sidebar);
+}
+
+/* Frosted AIDock input container — translucent sheen + inset highlight */
+@utility composer-shell {
+	position: relative;
+	overflow: hidden;
+	border-radius: var(--radius-3xl);
+	border: 1px solid var(--border);
+	background-color: oklch(from var(--background) l c h / 75%);
+	background-image: linear-gradient(
+		124deg,
+		rgba(255, 255, 255, 0.04) 23%,
+		rgba(255, 255, 255, 0.06) 51%,
+		rgba(255, 255, 255, 0.02) 80%
+	);
+	backdrop-filter: blur(3.125rem);
+	-webkit-backdrop-filter: blur(3.125rem);
+	box-shadow:
+		inset 0 2px 3px 0 rgba(255, 255, 255, 0.05),
+		0 2px 4px -1px rgba(0, 0, 0, 0.12);
+}
+
+/*
+ * Jewel icon chip — layered gradient badge. Consumers set the brand pair via
+ * --jewel-from / --jewel-to (falls back to the primary/chart-2 tokens so the
+ * class still looks correct unstyled).
+ */
+@utility jewel-chip {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 0.625rem;
+	border: 1px solid rgba(197, 197, 197, 0.24);
+	background-image:
+		linear-gradient(rgba(255, 255, 255, 0.16), transparent),
+		linear-gradient(rgba(255, 255, 255, 0.1), transparent),
+		linear-gradient(
+			135deg,
+			var(--jewel-from, var(--primary)),
+			var(--jewel-to, var(--chart-2))
+		);
+	background-blend-mode: hard-light, overlay, normal;
+	box-shadow:
+		0 3.6px 3.6px rgba(0, 0, 0, 0.08),
+		inset 0 1.8px 3.6px rgba(255, 255, 255, 0.24);
+}
+
+/* Hero dot grid — base layer, masked to fade out toward the page edges */
+@utility hero-dots {
+	position: relative;
+	background-image: radial-gradient(
+		circle,
+		oklch(from var(--foreground) l c h / 20%) 1px,
+		transparent 1px
+	);
+	background-size: 12px 12px;
+	mask-image: radial-gradient(ellipse 80% 65% at 50% 16%, black, transparent);
+	-webkit-mask-image: radial-gradient(
+		ellipse 80% 65% at 50% 16%,
+		black,
+		transparent
+	);
+}
+
+/* Hero dot grid — brighter second layer revealed under the pointer */
+@utility hero-dots-pointer {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	background-image: radial-gradient(
+		circle,
+		oklch(from var(--foreground) l c h / 50%) 1px,
+		transparent 1px
+	);
+	background-size: 12px 12px;
+	mask-image: radial-gradient(
+		circle 9rem at var(--pointer-x, 50%) var(--pointer-y, 50%),
+		black,
+		transparent
+	);
+	-webkit-mask-image: radial-gradient(
+		circle 9rem at var(--pointer-x, 50%) var(--pointer-y, 50%),
+		black,
+		transparent
+	);
+}
+
+/* Card caption band — bottom gradient scrim, readable over any thumbnail */
+@utility caption-band {
+	position: absolute;
+	inset-inline: 0;
+	bottom: 0;
+	color: white;
+	background-image: linear-gradient(to top, rgba(0, 0, 0, 0.9), transparent);
+	mask-image: linear-gradient(to top, black 50%, transparent);
+	-webkit-mask-image: linear-gradient(to top, black 50%, transparent);
+	backdrop-filter: blur(12px);
+	-webkit-backdrop-filter: blur(12px);
+}
+
+/* Primary CTA inner-glow — mapped to the primary token */
+@utility cta-glow {
+	position: relative;
+	border: 1px solid rgba(255, 255, 255, 0.3);
+	background-color: var(--primary);
+	color: var(--primary-foreground);
+	box-shadow:
+		inset -0.25rem -0.25rem 0.86rem 0
+		color-mix(in oklch, var(--primary) 70%, white 30%),
+		inset 0 0.25rem 0.25rem 0 rgba(255, 255, 255, 0.25);
+	transition: transform 160ms var(--ease-out-strong);
+
+	&:active {
+		transform: scale(0.98);
+	}
+}
+
+/*
+ * Section fade-out — stacked color-mix gradient dissolving into the page bg,
+ * used to transition out of a hero section (docs/studio-ui.md "Section
+ * fade-outs"). Sits absolutely at the bottom of a `relative` section.
+ */
+@utility section-fade {
+	pointer-events: none;
+	position: absolute;
+	inset-inline: 0;
+	bottom: 0;
+	height: 8rem;
+	background-image: linear-gradient(
+		to bottom,
+		color-mix(in srgb, var(--background) 0%, transparent),
+		color-mix(in srgb, var(--background) 70%, transparent) 60%,
+		var(--background)
+	);
+}
+
+/* TemplateCardFan entrance — staggered via inline animation-delay per item */
+@utility template-card-fan-item {
+	animation: template-card-fan-in 320ms var(--ease-out-strong) both;
+
+	@media (prefers-reduced-motion: reduce) {
+		animation: none;
+		opacity: 1;
+	}
+}
+
+@keyframes template-card-fan-in {
+	from {
+		opacity: 0;
+		transform: scale(0.95) translateY(0.5rem);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1) translateY(0);
+	}
+}
+
+/* Dashboard hero dither artwork — slow GPU-only drift (transform/opacity only;
+   the dither itself renders once, never per frame) */
+@utility dither-drift {
+	animation: dither-drift 90s ease-in-out infinite alternate;
+	will-change: transform;
+
+	@media (prefers-reduced-motion: reduce) {
+		animation: none;
+	}
+}
+
+@keyframes dither-drift {
+	from {
+		transform: scale(1.06) translate3d(-1.25%, -0.75%, 0);
+	}
+	to {
+		transform: scale(1.06) translate3d(1.25%, 0.75%, 0);
+	}
+}
+
+/* The composer's edge treatment alone (shared with TemplateCard — ONE border
+   language app-wide): hairline light border + inset top highlight + soft drop.
+   Keep in sync with glass-composer below. */
+@utility glass-edge {
+	border: 1px solid rgb(255 255 255 / 0.05);
+	box-shadow:
+		inset 0 0.125rem 0.1875rem 0 rgb(255 255 255 / 0.05),
+		0 0.125rem 0.25rem -0.03125rem rgb(0 0 0 / 0.12);
+}
+
+/* Glass composer surface (Higgsfield docked-composer recipe, on theme tokens):
+   translucent card base + faint diagonal sheen + inset top highlight + heavy
+   backdrop blur. Deliberately subtle — the glass reads as material, not tint. */
+@utility glass-composer {
+	border: 1px solid rgb(255 255 255 / 0.05);
+	background-color: color-mix(in oklab, var(--card) 75%, transparent);
+	background-image: linear-gradient(
+		124deg,
+		rgb(255 255 255 / 0.04) 22.61%,
+		rgb(255 255 255 / 0.06) 51.26%,
+		rgb(255 255 255 / 0.02) 79.91%
+	);
+	box-shadow:
+		inset 0 0.125rem 0.1875rem 0 rgb(255 255 255 / 0.05),
+		0 0.125rem 0.25rem -0.03125rem rgb(0 0 0 / 0.12);
+	backdrop-filter: blur(3.125rem);
+}
+
+/* Progressive-blur mask (apple-invites/TemplateCard glass bottom): each blur
+   layer fades out toward the top so the stack reads as a smooth frosted ramp. */
+@utility gradient-mask-t-0 {
+	mask-image: linear-gradient(to top, black 0%, transparent 100%);
+}
+
+/* Auth showcase marquee: each column stacks its clip list twice and drifts
+   one full copy's height, so the loop is seamless (copies carry their own
+   trailing gap — see auth-panel.tsx). Direction/speed vary per column. */
+@keyframes marquee-y {
+	from {
+		transform: translateY(0);
+	}
+	to {
+		transform: translateY(-50%);
+	}
+}
+
+/* Film-grain overlay (auth panel): SVG fractal noise tiled at low opacity —
+   the analog texture that keeps dark panels from reading flat-digital. */
+@utility film-grain {
+	background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+	background-size: 160px 160px;
+}

@@ -1,40 +1,45 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 
-import "../index.css";
-import Header from "@/components/header";
+import "./globals.css";
 import Providers from "@/components/providers";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+const jetbrainsMono = JetBrains_Mono({
+	subsets: ["latin"],
+	variable: "--font-mono",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+const inter = Inter({
+	variable: "--font-sans",
+	subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
-  title: "video-platform-challenge",
-  description: "video-platform-challenge",
+	title: "Zenkai",
+	description: "Zenkai — AI sports anime studio. From prompt to episode.",
 };
 
+/**
+ * Font variables live on `<html>` so every descendant inherits them.
+ * `--font-sans` (Inter) is the default body typeface via
+ * `@layer base { html { @apply font-sans; } }` in globals.css —
+ * `--font-mono` (JetBrains Mono) is only applied where a component opts
+ * into the `font-mono` utility (e.g. `Kbd`), not forced globally.
+ */
 export default function RootLayout({
-  children,
+	children,
 }: Readonly<{
-  children: React.ReactNode;
+	children: React.ReactNode;
 }>) {
-  return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <Providers>
-          <div className="grid grid-rows-[auto_1fr] h-svh">
-            <Header />
-            {children}
-          </div>
-        </Providers>
-      </body>
-    </html>
-  );
+	return (
+		<html
+			lang="en"
+			suppressHydrationWarning
+			className={`${inter.variable} ${jetbrainsMono.variable}`}
+		>
+			<body className="antialiased">
+				<Providers>{children}</Providers>
+			</body>
+		</html>
+	);
 }
