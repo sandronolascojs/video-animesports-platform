@@ -1,0 +1,34 @@
+{
+	"name": "@video-platform-challenge/ai",
+	"type": "module",
+	"exports": {
+		".": {
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"default": "./src/*.ts"
+		}
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "bun test",
+		"eval": "evalite",
+		"eval:watch": "evalite watch"
+	},
+	"dependencies": {
+		"@ai-sdk/gateway": "catalog:",
+		"@ai-sdk/provider-utils": "catalog:",
+		"@video-platform-challenge/env": "workspace:*",
+		"@video-platform-challenge/types": "workspace:*",
+		"ai": "catalog:",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"@video-platform-challenge/api": "workspace:*",
+		"@video-platform-challenge/config": "workspace:*",
+		"evalite": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

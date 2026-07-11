@@ -1,0 +1,13 @@
+{
+	// Standalone editor/typecheck config for the eval suite (phase AI-6b).
+	// evals/ is EXCLUDED from ../tsconfig.json's composite build (bun run
+	// check-types never sees it); this config exists so editors and an
+	// explicit `tsc -p evals` still fully type-check the eval code with node
+	// types (evals run under evalite/vitest on node, not Workers).
+	"extends": "@video-platform-challenge/config/tsconfig.base.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"types": ["node"]
+	},
+	"include": ["./**/*.ts", "../evalite.config.ts"]
+}

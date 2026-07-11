@@ -1,0 +1,18 @@
+{
+	"extends": "@video-platform-challenge/config/tsconfig.base.json",
+	"compilerOptions": {
+		"declaration": true,
+		"declarationMap": true,
+		"sourceMap": true,
+		"outDir": "dist",
+		"composite": true,
+		"types": ["node", "@cloudflare/workers-types", "bun"]
+	},
+	// evals/ + evalite.config.ts are dev-only, node-run eval code (phase
+	// AI-6b) — excluded from the composite build so `bun run check-types`
+	// never type-checks them against this package's Workers-flavored config
+	// (they import packages/api as a dev-only fixture exception, and evalite
+	// itself). Editor coverage comes from evals/tsconfig.json (standalone,
+	// noEmit).
+	"exclude": ["node_modules", "dist", "evals", "evalite.config.ts"]
+}
