@@ -1,20 +1,12 @@
-import { ORPCError, os } from "@orpc/server";
-
-import type { Context } from "./context";
-
-export const o = os.$context<Context>();
-
-export const publicProcedure = o;
-
-const requireAuth = o.middleware(async ({ context, next }) => {
-  if (!context.session?.user) {
-    throw new ORPCError("UNAUTHORIZED");
-  }
-  return next({
-    context: {
-      session: context.session,
-    },
-  });
-});
-
-export const protectedProcedure = publicProcedure.use(requireAuth);
+export * from "./contracts";
+export * from "./errors";
+export * from "./schemas/agent";
+export * from "./schemas/asset";
+export * from "./schemas/auth";
+export * from "./schemas/page";
+export * from "./schemas/project";
+export * from "./schemas/scene";
+export * from "./schemas/search";
+export * from "./schemas/story";
+export * from "./schemas/version";
+export * from "./serializer";
