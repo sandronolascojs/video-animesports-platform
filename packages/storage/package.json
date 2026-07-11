@@ -1,0 +1,23 @@
+{
+	"name": "@video-platform-challenge/storage",
+	"type": "module",
+	"exports": {
+		".": {
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"default": "./src/*.ts"
+		}
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@video-platform-challenge/env": "workspace:*",
+		"aws4fetch": "catalog:"
+	},
+	"devDependencies": {
+		"@video-platform-challenge/config": "workspace:*",
+		"typescript": "catalog:"
+	}
+}
