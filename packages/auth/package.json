@@ -1,24 +1,26 @@
 {
-  "name": "@video-platform-challenge/auth",
-  "type": "module",
-  "exports": {
-    ".": {
-      "default": "./src/index.ts"
-    },
-    "./*": {
-      "default": "./src/*.ts"
-    }
-  },
-  "scripts": {},
-  "dependencies": {
-    "@video-platform-challenge/db": "workspace:*",
-    "@video-platform-challenge/env": "workspace:*",
-    "better-auth": "catalog:",
-    "dotenv": "catalog:",
-    "zod": "catalog:"
-  },
-  "devDependencies": {
-    "@video-platform-challenge/config": "workspace:*",
-    "typescript": "catalog:"
-  }
+	"name": "@video-platform-challenge/auth",
+	"type": "module",
+	"exports": {
+		".": {
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"default": "./src/*.ts"
+		}
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@video-platform-challenge/db": "workspace:*",
+		"@video-platform-challenge/env": "workspace:*",
+		"better-auth": "catalog:",
+		"dotenv": "catalog:",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@video-platform-challenge/config": "workspace:*",
+		"typescript": "catalog:"
+	}
 }
