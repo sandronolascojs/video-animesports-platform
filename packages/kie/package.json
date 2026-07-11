@@ -1,0 +1,26 @@
+{
+	"name": "@video-platform-challenge/kie",
+	"type": "module",
+	"exports": {
+		".": {
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"default": "./src/*.ts"
+		}
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@video-platform-challenge/env": "workspace:*",
+		"@video-platform-challenge/types": "workspace:*",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"@video-platform-challenge/config": "workspace:*",
+		"typescript": "catalog:"
+	}
+}
