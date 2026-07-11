@@ -1,31 +1,38 @@
 {
-  "name": "@video-platform-challenge/db",
-  "type": "module",
-  "exports": {
-    ".": {
-      "default": "./src/index.ts"
-    },
-    "./*": {
-      "default": "./src/*.ts"
-    }
-  },
-  "scripts": {
-    "db:push": "drizzle-kit push",
-    "db:generate": "drizzle-kit generate",
-    "db:studio": "drizzle-kit studio",
-    "db:migrate": "drizzle-kit migrate"
-  },
-  "dependencies": {
-    "@video-platform-challenge/env": "workspace:*",
-    "dotenv": "catalog:",
-    "drizzle-orm": "^0.45.2",
-    "pg": "^8.22.0",
-    "zod": "catalog:"
-  },
-  "devDependencies": {
-    "@types/pg": "^8.20.0",
-    "@video-platform-challenge/config": "workspace:*",
-    "drizzle-kit": "^0.31.10",
-    "typescript": "catalog:"
-  }
+	"name": "@video-platform-challenge/db",
+	"type": "module",
+	"exports": {
+		".": {
+			"default": "./src/index.ts"
+		},
+		"./schema": {
+			"default": "./src/schema/index.ts"
+		},
+		"./*": {
+			"default": "./src/*.ts"
+		}
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"db:push": "drizzle-kit push",
+		"db:generate": "drizzle-kit generate",
+		"db:studio": "drizzle-kit studio",
+		"db:migrate": "drizzle-kit migrate",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@neondatabase/serverless": "catalog:",
+		"@paralleldrive/cuid2": "^3.3.0",
+		"@video-platform-challenge/env": "workspace:*",
+		"@video-platform-challenge/types": "workspace:*",
+		"dotenv": "catalog:",
+		"drizzle-orm": "catalog:",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"@video-platform-challenge/config": "workspace:*",
+		"drizzle-kit": "^0.31.10",
+		"typescript": "catalog:"
+	}
 }

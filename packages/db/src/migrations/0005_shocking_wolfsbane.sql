@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "assets_source_unique" ON "assets" USING btree ("source");
