@@ -63,7 +63,10 @@ export function SceneCountSelector({
 					type="button"
 					variant="ghost"
 					size="sm"
-					className={cn("gap-1.5 font-medium text-foreground", className)}
+					className={cn(
+						"gap-1.5 rounded-lg text-[13px] text-muted-foreground tabular-nums hover:bg-white/[0.04] hover:text-foreground",
+						className,
+					)}
 				>
 					<ClapperboardIcon size={14} />
 					{sceneCountLabel(value)}

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { MainButton } from "@/components/kit/main-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +25,7 @@ import {
 } from "@/feature/studio/hooks/use-render-export";
 import { useStudioChat } from "@/feature/studio/stores/studio-chat-provider";
 import { useStudio } from "@/feature/studio/stores/use-studio";
+import { cn } from "@/libs/utils";
 
 const STATUS_LABEL: Record<string, string> = {
 	[ProjectStatus.ASSEMBLING]: "Assembling",
@@ -102,7 +104,7 @@ export function StudioTopbar() {
 
 				<Badge
 					variant={statusVariant}
-					className={isGenerating ? "tabular-nums" : undefined}
+					className={cn(isGenerating && "tabular-nums")}
 				>
 					{statusLabel}
 				</Badge>
@@ -132,15 +134,14 @@ export function StudioTopbar() {
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<span>
-							<Button
+							<MainButton
 								type="button"
-								variant="outline"
 								size="sm"
 								disabled={isRunning || !canRender}
 								onClick={start}
 							>
 								{renderButtonLabel(state, "Export")}
-							</Button>
+							</MainButton>
 						</span>
 					</TooltipTrigger>
 					{!canRender ? (

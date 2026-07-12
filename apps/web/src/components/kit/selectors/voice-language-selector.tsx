@@ -59,7 +59,10 @@ export function VoiceLanguageSelector({
 					type="button"
 					variant="ghost"
 					size="sm"
-					className={cn("gap-1.5 font-medium text-foreground", className)}
+					className={cn(
+						"gap-1.5 rounded-lg text-[13px] text-muted-foreground hover:bg-white/[0.04] hover:text-foreground",
+						className,
+					)}
 				>
 					<MicIcon size={14} />
 					{VOICE_LANGUAGE_LABEL[value]}
