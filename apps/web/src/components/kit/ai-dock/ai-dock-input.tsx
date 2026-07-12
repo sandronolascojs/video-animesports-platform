@@ -2,7 +2,7 @@
 
 import type { ChatStatus } from "ai";
 import { BorderBeam } from "border-beam";
-import { MinusIcon } from "lucide-react";
+import { MinusIcon, PanelRightOpenIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useTheme } from "next-themes";
 import type { ReactNode } from "react";
@@ -41,6 +41,17 @@ export type AIDockInputProps = {
 	/** Aborts the in-flight stream — forwarded to `PromptInputSubmit`'s `onStop`, which is what actually swaps the submit button into a working Stop control while `status` is "submitted"/"streaming". Omit to leave Stop inert (e.g. call sites with no `useChat` session). */
 	onStop?: () => void;
 	onMinimize?: () => void;
+	/**
+	 * Studio-only (docs/ai-architecture-v1.md §2 "A toggle affordance opens
+	 * the sidebar from the dock"): renders a small icon button in the top-right
+	 * control row, right next to the minimize button, that opens the full
+	 * `AgentChatSidebar`. `undefined` (the default) hides it entirely, so
+	 * `AIDockInput` stays usable standalone (Home's hero mode, the kit preview
+	 * page) without this Studio-specific affordance. Moved here from `AIDock`
+	 * itself (Studio UI polish) — it now lives beside Minimize instead of as a
+	 * separate button floating outside the dock shell.
+	 */
+	onOpenSidebar?: () => void;
 	className?: string;
 	/**
 	 * Takes priority over the rotating `placeholders` while set (Home's
@@ -96,6 +107,7 @@ export function AIDockInput({
 	status,
 	onStop,
 	onMinimize,
+	onOpenSidebar,
 	className,
 	ghostText,
 	focusSignal,
@@ -195,8 +207,28 @@ export function AIDockInput({
 				 * IDENTICAL between Home (hero, no onMinimize) and Studio
 				 * (floating, onMinimize set). A conditionally-rendered row would
 				 * make Home's composer shorter than the Studio dock's.
+				 *
+				 * `onOpenSidebar` (Studio-only, see its own prop doc comment)
+				 * renders right beside Minimize instead of as a separate button
+				 * floating outside the dock shell — same h-6 icon-button styling,
+				 * so the two read as one control cluster.
 				 */}
 				<div className="flex items-center justify-end gap-0.5 px-3 pt-2.5">
+					{onOpenSidebar ? (
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<button
+									type="button"
+									onClick={onOpenSidebar}
+									aria-label="Open Director chat"
+									className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/40 transition-[color,background-color,transform] duration-150 ease-out hover:bg-muted/30 hover:text-muted-foreground active:scale-[0.94]"
+								>
+									<PanelRightOpenIcon className="h-3.5 w-3.5" />
+								</button>
+							</TooltipTrigger>
+							<TooltipContent side="top">Open Director chat</TooltipContent>
+						</Tooltip>
+					) : null}
 					{onMinimize ? (
 						<Tooltip>
 							<TooltipTrigger asChild>
