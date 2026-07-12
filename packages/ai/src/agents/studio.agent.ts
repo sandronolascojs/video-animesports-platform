@@ -41,11 +41,11 @@ export const STUDIO_AGENT_SYSTEM_PROMPT = [
 	"You can see the full story through get_project_state: character designs and voices, and every scene's dialogue/action/duration in timeline order. Ground every creative suggestion in what's ALREADY there — reference established characters by name, continue the actual tone and stakes of the story so far, and never propose something that contradicts or ignores it.",
 	"Long-running generations (extend_scenes, retry_scene, render_version) return immediately once the work is queued — never claim a result is ready until the editor's own status reflects it; report what you started, not a guess at when it finishes.",
 	"Keep responses short and concrete: state what you're about to do, do it via a tool call, then summarize the outcome in one or two sentences.",
-	// AI-4: the Studio dock's scenes selector has no dedicated tool
-	// argument of its own — it appends this hint to the outgoing message
-	// text instead (apps/web's StudioDock), so the agent must know to look
-	// for and honor it.
-	"If the user's message ends with an explicit scene-count hint like '(generate 3 scenes)' (the Studio dock's scenes selector appends this automatically), treat that number as the exact sceneCount to pass to extend_scenes — but only when the request is actually about extending/adding scenes; ignore the hint entirely for unrelated requests (retrying a scene, rendering, changing languages, or just chatting).",
+	// AI-4: the composer's scene-count pill has no dedicated tool argument
+	// of its own — it appends this hint to the outgoing message text instead
+	// (apps/web's AgentChatComposer, the Studio rail's chat input), so the
+	// agent must know to look for and honor it.
+	"If the user's message ends with an explicit scene-count hint like '(generate 3 scenes)' (the composer's scene-count pill appends this automatically), treat that number as the exact sceneCount to pass to extend_scenes — but only when the request is actually about extending/adding scenes; ignore the hint entirely for unrelated requests (retrying a scene, rendering, changing languages, or just chatting).",
 ].join("\n");
 
 const audioLanguageSchema = z.enum([...Object.values(AudioLanguage)]);

@@ -1,7 +1,13 @@
 "use client";
 
 import { ProjectStatus, SceneStatus } from "@video-platform-challenge/types";
-import { AlertTriangleIcon, ArrowLeftIcon, XIcon } from "lucide-react";
+import {
+	AlertTriangleIcon,
+	ArrowLeftIcon,
+	PanelRightCloseIcon,
+	PanelRightOpenIcon,
+	XIcon,
+} from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +22,7 @@ import {
 	renderButtonLabel,
 	useRenderExport,
 } from "@/feature/studio/hooks/use-render-export";
+import { useStudioChat } from "@/feature/studio/stores/studio-chat-provider";
 import { useStudio } from "@/feature/studio/stores/use-studio";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -29,19 +36,28 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 /**
- * Topbar (docs/studio-ui.md §1 diagram): back, title, status badge, Export.
- * Export drives the same `useRenderExport` state machine as the timeline's
- * Render button (front-wiring phase 3, SCOPE item 3's "unify") — disabled
- * while a render is running or until every scene is `video_ready`. Status
- * reads the project row directly (server-authoritative — docs'
- * generating-state machine) rather than being re-derived from scene
- * statuses; a project-level `failReason` (docs "error-first: the product
- * must always load and render failures beautifully") surfaces as a banner
- * right below the bar.
+ * Topbar (docs/studio-design-language.md §3e): back, title, status badge,
+ * the Director toggle, Export. Export drives the same `useRenderExport`
+ * state machine as the timeline's Render button (front-wiring phase 3, SCOPE
+ * item 3's "unify") — disabled while a render is running or until every
+ * scene is `video_ready`. Status reads the project row directly
+ * (server-authoritative — docs' generating-state machine) rather than being
+ * re-derived from scene statuses; a project-level `failReason` (docs
+ * "error-first: the product must always load and render failures
+ * beautifully") surfaces as a banner right below the bar.
+ *
+ * The Director toggle (§3d "open affordance moves to the Studio topbar") is
+ * this route's only way to open `AgentChatSidebar` now that the floating
+ * dock is gone — ⌘J (registered in `StudioChatProvider`) does the same.
  */
 export function StudioTopbar() {
 	const { project, orderedScenes } = useStudio();
 	const { canRender, cancel, isRunning, start, state } = useRenderExport();
+	const {
+		isOpen: isChatOpen,
+		open: openChat,
+		close: closeChat,
+	} = useStudioChat();
 
 	const hasFailedScene = orderedScenes.some(
 		({ scene }) => scene.status === SceneStatus.FAILED,
@@ -90,6 +106,28 @@ export function StudioTopbar() {
 				>
 					{statusLabel}
 				</Badge>
+
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							type="button"
+							variant="ghost"
+							size="sm"
+							className="gap-1.5"
+							aria-expanded={isChatOpen}
+							aria-label={
+								isChatOpen ? "Close Director chat" : "Open Director chat"
+							}
+							onClick={() => (isChatOpen ? closeChat() : openChat())}
+						>
+							{isChatOpen ? <PanelRightCloseIcon /> : <PanelRightOpenIcon />}
+							Director
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent>
+						{isChatOpen ? "Close" : "Open"} Director chat · ⌘J
+					</TooltipContent>
+				</Tooltip>
 
 				<Tooltip>
 					<TooltipTrigger asChild>

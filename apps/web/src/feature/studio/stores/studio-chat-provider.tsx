@@ -18,6 +18,7 @@ import {
 
 import type { ToolPart } from "@/components/ai-elements/tool";
 import { useAgentHistory } from "@/feature/studio/hooks/http/use-agent-chat";
+import { useShortcut } from "@/hooks/use-platform";
 import { orpc } from "@/libs/orpc";
 import { toastMutationError } from "@/libs/orpc/mutation-error";
 import { getServerUrl } from "@/libs/utils";
@@ -43,9 +44,9 @@ const PROJECT_MUTATING_TOOL_PART_TYPES = new Set([
 	"tool-update_languages",
 ]);
 
-/** Shared double-submit guard (docs §8a fix 3): both `StudioDock` and the
- * sidebar's `AgentChatComposer` gate their submit handler on this — a
- * turn already in flight must not accept a second concurrent send. */
+/** Shared double-submit guard (docs §8a fix 3): the rail's
+ * `AgentChatComposer` gates its submit handler on this — a turn already in
+ * flight must not accept a second concurrent send. */
 export function isChatWorking(status: ChatStatus): boolean {
 	return status === "submitted" || status === "streaming";
 }
@@ -76,19 +77,20 @@ function mergeHistoryWithLocalMessages(
 
 export type StudioChatContextValue = {
 	/**
-	 * Whether `AgentChatSidebar` is open. Default `false` (the floating
-	 * `AIDock` stays visible) — docs/ai-architecture-v1.md §2 "Dock ↔
-	 * sidebar: two views of ONE chat": the dock and the sidebar are the same
-	 * conversation in two states, NEVER both visible at once.
+	 * Whether `AgentChatSidebar` is open — the Studio's ONLY chat surface
+	 * (docs/studio-design-language.md §3d: the floating dock was removed
+	 * entirely, so this is no longer an exclusivity switch, just the rail's
+	 * own open/close state). Toggled from `StudioTopbar`'s Director button
+	 * or the ⌘J shortcut registered below. Default `false`.
 	 */
 	isOpen: boolean;
-	/** Opens the sidebar (and, per the spec above, the dock's caller should hide itself). */
+	/** Opens the rail. */
 	open: () => void;
-	/** Closes the sidebar back down to the dock. */
+	/** Closes the rail. */
 	close: () => void;
-	/** The live per-project conversation — shared by both the dock and the sidebar (docs "one input, two shells"). */
+	/** The live per-project conversation, shared by the sidebar's composer and (once fetched) persisted history. */
 	messages: UIMessage[];
-	/** Sends a message through the SAME chat regardless of which shell (dock or sidebar) called it. Resolves once the turn's stream finishes. */
+	/** Sends a message through the shared chat session. Resolves once the turn's stream finishes. */
 	sendMessage: (message: { text: string }) => Promise<void>;
 	/** Streaming status, forwarded to `AIDockInput`'s submit affordance. */
 	status: ChatStatus;
@@ -98,18 +100,35 @@ export type StudioChatContextValue = {
 	regenerate: () => void;
 	/** Clears the current error state, e.g. right before a Retry re-issues the turn. */
 	clearError: () => void;
-	/** Aborts the in-flight stream — wired to the dock/composer's Stop affordance (`PromptInputSubmit`'s `onStop`). */
+	/** Aborts the in-flight stream — wired to the composer's Stop affordance (`PromptInputSubmit`'s `onStop`). */
 	stop: () => void;
+	/**
+	 * Bumped alongside `prefillText` every time something asks the rail's
+	 * composer (`AgentChatComposer`) to load a canned prompt into its draft
+	 * without sending it — currently only the empty state's suggestion rows
+	 * (docs §3d "3 tappable suggestion rows ... that prefill the composer").
+	 * `undefined` until the first request, so the composer's effect can tell
+	 * "never fired" apart from "fired with this text" — a plain string
+	 * wouldn't re-trigger anything if the SAME suggestion is clicked twice in
+	 * a row.
+	 */
+	prefillSignal: number | undefined;
+	/** The text to load, read alongside `prefillSignal` above. */
+	prefillText: string;
+	/** Requests a prefill — see `prefillSignal`'s doc comment. */
+	requestPrefill: (text: string) => void;
 };
 
 const StudioChatContext = createContext<StudioChatContextValue | null>(null);
 
 /**
- * Dock↔sidebar exclusivity switch AND the single chat owner for the Studio
- * (docs/ai-architecture-v1.md §2). AI-3 scoped this to local UI state only
- * (`isOpen`); AI-4 adds the real `useChat` session on top of the exact same
- * provider so both `AgentChatSidebar` and the dock (`StudioDock`, mounted as
- * a sibling further down the tree) read one shared conversation.
+ * The rail's open/close state AND the single chat owner for the Studio
+ * (docs/studio-design-language.md §3d). AI-3 scoped this to local UI state
+ * only (`isOpen`); AI-4 added the real `useChat` session on top of the same
+ * provider; this pass (§3d "consolidate the agent chat to the right rail
+ * only") drops the dock↔sidebar dual-view it used to arbitrate — there is
+ * only the rail now, so `isOpen` is just its own open/close flag, toggled
+ * from `StudioTopbar`'s Director button or the ⌘J shortcut below.
  *
  * History is fetched client-side (`useAgentHistory`), not SSR-prefetched:
  * this provider is mounted in the route's `layout.tsx`, which also renders
@@ -129,8 +148,20 @@ export function StudioChatProvider({
 	children: ReactNode;
 }) {
 	const [isOpen, setIsOpen] = useState(false);
+	// See `prefillSignal`'s doc comment on `StudioChatContextValue` — `undefined`
+	// sentinel until the first suggestion-row click, same convention as
+	// `AIDockInput`'s own `focusSignal` prop.
+	const [prefillSignal, setPrefillSignal] = useState<number>();
+	const [prefillText, setPrefillText] = useState("");
 	const queryClient = useQueryClient();
 	const history = useAgentHistory(projectId);
+
+	// ⌘J toggles the rail open/closed from anywhere in the Studio — moved
+	// here (docs §3d) from the removed floating `AIDock`, which used to own
+	// this same shortcut for its own expand/collapse. One registration per
+	// provider instance (i.e. per project route), regardless of whether
+	// `StudioTopbar` or the rail itself is currently mounted.
+	useShortcut("j", () => setIsOpen((prev) => !prev));
 	// "Don't re-run after applied" (docs §8a fix 4): a ref, not a
 	// `messages.length === 0` guard — the old guard permanently skipped
 	// backfill once the user sent a message before history resolved. This
@@ -240,8 +271,14 @@ export function StudioChatProvider({
 			isOpen,
 			messages,
 			open: () => setIsOpen(true),
+			prefillSignal,
+			prefillText,
 			regenerate: () => {
 				void regenerate();
+			},
+			requestPrefill: (text: string) => {
+				setPrefillText(text);
+				setPrefillSignal((current) => (current ?? 0) + 1);
 			},
 			sendMessage,
 			status,
@@ -258,6 +295,8 @@ export function StudioChatProvider({
 			regenerate,
 			clearError,
 			stop,
+			prefillSignal,
+			prefillText,
 		],
 	);
 

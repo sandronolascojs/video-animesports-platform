@@ -23,6 +23,7 @@ import { getStatusBadge, type ToolPart } from "@/components/ai-elements/tool";
 import { Button } from "@/components/ui/button";
 import {
 	Empty,
+	EmptyContent,
 	EmptyDescription,
 	EmptyHeader,
 	EmptyMedia,
@@ -34,19 +35,53 @@ import { cn } from "@/libs/utils";
 
 const MOUNT_TRANSITION = { duration: 0.22, ease: [0.32, 0.72, 0, 1] as const };
 
-function AgentChatEmptyState() {
+/** The empty state's tappable starters (docs/studio-design-language.md §3d
+ * "3 tappable suggestion rows ... that prefill the composer"). Natural
+ * language, same voice as the composer's own rotating placeholders — clicking
+ * one loads it into the draft via `requestPrefill`, it does not send. */
+const CHAT_SUGGESTIONS = [
+	"Add 2 more scenes",
+	"Retry the failed shot",
+	"Render a new version",
+];
+
+/**
+ * Premium empty state (docs §3d, §1 "Premium empty states"): a soft icon +
+ * bold title + one muted hint, then the starter rows — flat, hairline-divided
+ * (`ScenesPanel`'s own `divide-y divide-border/50` convention, NOT a nested
+ * card per surface), each a full-width tappable row.
+ */
+function AgentChatEmptyState({
+	onSuggestion,
+}: {
+	onSuggestion: (text: string) => void;
+}) {
 	return (
 		<Empty className="h-full border-none p-6">
 			<EmptyHeader>
 				<EmptyMedia variant="icon">
 					<ClapperboardIcon />
 				</EmptyMedia>
-				<EmptyTitle>No messages yet</EmptyTitle>
+				<EmptyTitle>Direct your episode</EmptyTitle>
 				<EmptyDescription>
 					Ask the Director to extend scenes, retry a shot, or render a new
 					version.
 				</EmptyDescription>
 			</EmptyHeader>
+			<EmptyContent>
+				<div className="w-full divide-y divide-border/50">
+					{CHAT_SUGGESTIONS.map((suggestion) => (
+						<button
+							key={suggestion}
+							type="button"
+							onClick={() => onSuggestion(suggestion)}
+							className="flex w-full items-center px-2 py-2.5 text-left text-muted-foreground text-sm transition-colors duration-150 ease-out hover:bg-accent/40 hover:text-foreground"
+						>
+							{suggestion}
+						</button>
+					))}
+				</div>
+			</EmptyContent>
 		</Empty>
 	);
 }
@@ -126,12 +161,21 @@ function ChatMessage({ message }: { message: UIMessage }) {
 }
 
 /**
- * Two views of ONE chat, sidebar side (docs/ai-architecture-v1.md §2): docks
- * on the RIGHT at `--sidebar-width` (16rem) + 20% = 19.2rem, same floating
- * card visual language as `AppSidebar` (`surface-panel`: rounded-2xl,
- * `border-sidebar-border`, `bg-sidebar`) with the same `my-2 mr-2` spacing
- * `SidebarInset` uses, so the rail reads as a sibling of that card language
- * even though the Studio route never renders `AppSidebar` itself.
+ * The Studio's single chat surface (docs/studio-design-language.md §3d
+ * "consolidate the agent chat to the right rail only" — the floating dock is
+ * gone, this rail is it). Docks on the RIGHT at ~23rem: the original
+ * `--sidebar-width` (16rem) + 20% = 19.2rem, widened another ~20% by this
+ * pass for breathing room. Same floating card visual language as
+ * `AppSidebar` (`surface-panel`: rounded-2xl, `border-sidebar-border`,
+ * `bg-sidebar`) with the same `my-2 mr-2` spacing `SidebarInset` uses, so the
+ * rail reads as a sibling of that card language even though the Studio route
+ * never renders `AppSidebar` itself. The composer inside stays the shared
+ * `AIDockInput` glass (`glass-composer`) — the rail's own material is
+ * `surface-panel`, not stacked glass-on-glass (docs §2 "don't stack glass on
+ * glass").
+ *
+ * Opened from `StudioTopbar`'s Director button or ⌘J (both wired through
+ * `useStudioChat()`).
  *
  * AI-4: real messages from `useStudioChat()` (the shared `useChat` session
  * `StudioChatProvider` owns), rendered with the vendored `ai-elements`
@@ -140,8 +184,15 @@ function ChatMessage({ message }: { message: UIMessage }) {
  * free — no extra scroll wiring needed here.
  */
 export function AgentChatSidebar() {
-	const { isOpen, close, messages, error, regenerate, clearError } =
-		useStudioChat();
+	const {
+		isOpen,
+		close,
+		messages,
+		error,
+		regenerate,
+		clearError,
+		requestPrefill,
+	} = useStudioChat();
 
 	return (
 		<AnimatePresence initial={false}>
@@ -149,27 +200,31 @@ export function AgentChatSidebar() {
 				<motion.aside
 					key="agent-chat-sidebar"
 					initial={{ opacity: 0, width: 0 }}
-					animate={{ opacity: 1, width: "19.2rem" }}
+					animate={{ opacity: 1, width: "23rem" }}
 					exit={{ opacity: 0, width: 0 }}
-					// `MOUNT_TRANSITION` is the SAME `[0.32, 0.72, 0, 1]` "drawer" ease
-					// + 220ms duration `AIDock`'s own mount/exit uses (docs "one input,
-					// two shells" — the two surfaces should read as one continuous
-					// handoff, not unrelated animations). Animating `width` (not just
-					// `transform`/`opacity`) is a deliberate exception here: the editor
-					// sibling genuinely needs to reflow into the reclaimed space when
-					// the rail closes (spec "when collapsed, the editor takes the full
-					// width") — an occasional, user-initiated open/close, not a
-					// high-frequency animation, so the extra layout cost is acceptable.
+					// `MOUNT_TRANSITION` is the same `[0.32, 0.72, 0, 1]` "drawer" ease
+					// + 220ms duration the (now-removed) floating dock's own mount/exit
+					// used — kept identical so the topbar toggle's open/close still
+					// reads as one deliberate handoff, not an arbitrary animation.
+					// Animating `width` (not just `transform`/`opacity`) is a deliberate
+					// exception here: the editor sibling genuinely needs to reflow into
+					// the reclaimed space when the rail closes (spec "when collapsed,
+					// the editor takes the full width") — an occasional, user-initiated
+					// open/close, not a high-frequency animation, so the extra layout
+					// cost is acceptable.
 					transition={MOUNT_TRANSITION}
 					className="surface-panel my-2 mr-2 flex min-h-0 flex-col overflow-hidden"
 				>
 					{/* Fixed inner width: the OUTER `motion.aside` animates `width`
-					    (0 → 19.2rem) with `overflow-hidden`, so this inner column stays
+					    (0 → 23rem) with `overflow-hidden`, so this inner column stays
 					    pinned at the rail's resting width and gets progressively
 					    revealed/clipped as the wrapper animates — a wipe, not a squeeze. */}
-					<div className="flex h-full min-h-0 w-[19.2rem] flex-col">
-						<header className="flex shrink-0 items-center justify-between gap-2 border-sidebar-border border-b px-3 py-2.5">
-							<h2 className="font-semibold text-sm">Director</h2>
+					<div className="flex h-full min-h-0 w-[23rem] flex-col">
+						<header className="flex shrink-0 items-center justify-between gap-2 border-sidebar-border border-b px-4 py-3">
+							<div className="flex items-center gap-2">
+								<ClapperboardIcon className="size-4 text-muted-foreground" />
+								<h2 className="font-semibold text-sm">Director</h2>
+							</div>
 							<Button
 								variant="ghost"
 								size="icon-sm"
@@ -182,7 +237,7 @@ export function AgentChatSidebar() {
 
 						<div className={cn("flex min-h-0 flex-1 flex-col")}>
 							{messages.length === 0 ? (
-								<AgentChatEmptyState />
+								<AgentChatEmptyState onSuggestion={requestPrefill} />
 							) : (
 								<Conversation>
 									<ConversationContent>

@@ -126,13 +126,12 @@ export function AIDockInput({
 
 	const isEmpty = value.trim().length === 0;
 	const submittable = !isEmpty;
-	// Both call sites (`StudioDock`, `AgentChatComposer`) clear `value`
-	// synchronously the moment they submit, so `submittable` is always false
-	// for the entire "submitted"/"streaming" window — `disabled` below adds
-	// this OR so the Stop control (`PromptInputSubmit`'s `onStop` branch)
-	// stays clickable while a turn is in flight despite the now-empty input
-	// (fix 4: otherwise Stop rendered but every click was swallowed by
-	// `disabled`).
+	// A caller that clears `value` synchronously the moment it submits (e.g.
+	// the Studio rail's `AgentChatComposer`) leaves `submittable` false for
+	// the entire "submitted"/"streaming" window — `disabled` below adds this
+	// OR so the Stop control (`PromptInputSubmit`'s `onStop` branch) stays
+	// clickable while a turn is in flight despite the now-empty input (fix 4:
+	// otherwise Stop rendered but every click was swallowed by `disabled`).
 	const isGenerating = status === "submitted" || status === "streaming";
 	const activePlaceholder =
 		placeholders[placeholderIndex % placeholders.length];

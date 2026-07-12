@@ -15,13 +15,13 @@ export type StudioLayoutProps = Readonly<{
  * editor (`children`, i.e. `StudioPage` → `StudioView`) takes the remaining
  * width, `AgentChatSidebar` docks on the right at a fixed width while open.
  *
- * `StudioChatProvider` is the dock↔sidebar exclusivity switch AND (AI-4) the
- * single chat owner — both `AgentChatSidebar` here and `StudioView`'s own
- * floating `AIDock` read it via `useStudioChat()` so the two surfaces share
- * one conversation and stay mutually exclusive (never both visible, per the
- * spec). `projectId` comes from this layout's own dynamic segment params
- * (Next.js passes `params` to every layout/page under `[projectId]`, not
- * just the leaf page).
+ * `StudioChatProvider` is the rail's open/close state AND (AI-4) the single
+ * chat owner (docs/studio-design-language.md §3d: there is no floating dock
+ * anymore, `AgentChatSidebar` here is the Studio's only chat surface) —
+ * `StudioTopbar`'s Director button and the provider's own ⌘J shortcut both
+ * read/toggle it via `useStudioChat()`. `projectId` comes from this layout's
+ * own dynamic segment params (Next.js passes `params` to every layout/page
+ * under `[projectId]`, not just the leaf page).
  */
 export default async function StudioLayout({
 	children,
