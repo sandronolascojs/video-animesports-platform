@@ -1,1 +1,27 @@
 lint-staged
+
+# BLOCKER-process fix: bun:test has no --forbidOnly flag, so a stray
+# describe.only/test.only/it.only would silently skip the rest of the suite
+# and slip into main with a green CI. Scoped to the STAGED content of staged
+# *.test.ts(x) files only (git show ":$file", not a working-tree read, and
+# not a whole-repo scan) — fast regardless of how many pre-existing test
+# files the repo has.
+staged_test_files=$(git diff --cached --name-only --diff-filter=ACM -- '*.test.ts' '*.test.tsx')
+if [ -n "$staged_test_files" ]; then
+	only_hits=""
+	for file in $staged_test_files; do
+		hit=$(git show ":$file" | grep -nE '\b(describe|test|it)\.only\(' || true)
+		if [ -n "$hit" ]; then
+			only_hits="$only_hits$file:
+$hit
+"
+		fi
+	done
+	if [ -n "$only_hits" ]; then
+		printf 'commit blocked: found .only( in staged test files (bun test has no forbidOnly flag) — remove describe.only/test.only/it.only before committing:\n%s' "$only_hits" >&2
+		exit 1
+	fi
+fi
+
+bun run check-types
+bun run test

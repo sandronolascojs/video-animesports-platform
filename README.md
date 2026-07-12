@@ -50,29 +50,25 @@ The API is running at [http://localhost:3000](http://localhost:3000).
 
 ## UI Customization
 
-React web apps in this stack share shadcn/ui primitives through `packages/ui`.
+shadcn/ui primitives live inside the web app at `apps/web/src/components/ui`.
 
-- Change design tokens and global styles in `packages/ui/src/styles/globals.css`
-- Update shared primitives in `packages/ui/src/components/*`
-- Adjust shadcn aliases or style config in `packages/ui/components.json` and `apps/web/components.json`
+- Change design tokens and global styles in `apps/web/src/app/globals.css`
+- Update primitives in `apps/web/src/components/ui/*`
+- Adjust shadcn aliases or style config in `apps/web/components.json`
 
-### Add more shared components
+### Add more components
 
-Run this from the project root to add more primitives to the shared UI package:
+Run the shadcn CLI from `apps/web`:
 
 ```bash
-npx shadcn@latest add accordion dialog popover sheet table -c packages/ui
+cd apps/web && npx shadcn@latest add accordion dialog popover sheet table
 ```
 
-Import shared components like this:
+Import components like this:
 
 ```tsx
-import { Button } from "@video-platform-challenge/ui/components/button";
+import { Button } from "@/components/ui/button";
 ```
-
-### Add app-specific blocks
-
-If you want to add app-specific blocks instead of shared primitives, run the shadcn CLI from `apps/web`.
 
 ## Deployment
 
