@@ -3,6 +3,7 @@
 import Image from "next/image";
 
 import { DotPattern } from "@/components/ui/dot-pattern";
+import { cn } from "@/libs/utils";
 
 type ShowcaseClip = {
 	key: string;
@@ -38,7 +39,10 @@ function ShowcaseTile({ clip }: { clip: ShowcaseClip }) {
 		<div
 			// The drop shadow lifts the wall off the bloom — without it the
 			// tiles sit optically flat on the background light.
-			className={`relative overflow-hidden rounded-2xl bg-card/50 shadow-[0_16px_40px_-12px_rgba(0,0,0,0.65)] ${clip.aspect}`}
+			className={cn(
+				"relative overflow-hidden rounded-2xl bg-card/50 shadow-[0_16px_40px_-12px_rgba(0,0,0,0.65)]",
+				clip.aspect,
+			)}
 		>
 			{/* Still underneath; the clip paints over it once it loads — a
 			    missing mp4 degrades to the artwork (or the card tone for the

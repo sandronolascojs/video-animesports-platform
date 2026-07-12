@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 
 import { ProgressiveBlur } from "@/components/ui/progressive-blur";
+import { cn } from "@/libs/utils";
 
 export type ShowMoreProps = {
 	children: ReactNode;
@@ -69,7 +70,7 @@ export function ShowMore({
 	return (
 		<>
 			<motion.div
-				className={`relative overflow-hidden ${className ?? ""}`}
+				className={cn("relative overflow-hidden", className)}
 				initial={false}
 				animate={{ height: collapsible && !expanded ? peek : "auto" }}
 				transition={reduceMotion ? { duration: 0 } : spring}
