@@ -21,6 +21,14 @@ const GENERATING_SEQUENCE: PresetPattern[] = [
 	"x-shape",
 ];
 
+// The composed "card-of-one" plate (docs/studio-design-language.md §3b): the
+// shared glass-composer material, rounded to the doc's card ceiling
+// (`rounded-2xl`), sized like the Empty primitive's own `max-w-sm` so both
+// the generating and failure moments read as one deliberate treatment inside
+// the player well — never filling the canvas.
+const PLATE_CLASSNAME =
+	"glass-composer flex w-full max-w-sm flex-col items-center gap-5 rounded-2xl px-8 py-9 text-center";
+
 export type PlayerGeneratingStateProps = {
 	/** Whether the first generation ended in `failed` before any scene ever landed. */
 	isFailed: boolean;
@@ -36,7 +44,10 @@ export type PlayerGeneratingStateProps = {
  * `Player` (ready clips + per-scene placeholders) so the owner watches the
  * first clip play while the rest keep filling in. `player-canvas.tsx` owns
  * the WHETHER (via `isFirstGeneration`/`isFirstGenerationFailure`); this owns
- * only the WHAT. `prefers-reduced-motion` is honored by `GridLoader` itself.
+ * only the WHAT. Both branches render inside the shared `glass-composer`
+ * plate (§3b) so the loader/status or the error/Retry read as one composed
+ * moment rather than floating bare on the black canvas.
+ * `prefers-reduced-motion` is honored by `GridLoader` itself.
  */
 export function PlayerGeneratingState({
 	isFailed,
@@ -51,11 +62,8 @@ export function PlayerGeneratingState({
 		);
 
 		return (
-			<div
-				className="flex flex-col items-center gap-4 text-center"
-				role="alert"
-			>
-				<p className="max-w-sm text-balance text-foreground text-sm">
+			<div className={PLATE_CLASSNAME} role="alert">
+				<p className="text-balance text-foreground text-sm">
 					{project.failReason ?? "Generation failed before any scene finished."}
 				</p>
 				<Button
@@ -90,7 +98,7 @@ export function PlayerGeneratingState({
 	}
 
 	return (
-		<div className="flex flex-col items-center gap-5 text-center" role="status">
+		<div className={PLATE_CLASSNAME} role="status">
 			<GridLoader
 				mode="sequence"
 				sequence={GENERATING_SEQUENCE}

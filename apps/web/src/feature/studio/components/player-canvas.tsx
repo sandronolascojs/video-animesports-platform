@@ -76,6 +76,7 @@ export function PlayerCanvas() {
 					style={{ height: "100%", width: "100%" }}
 					controls
 					loop
+					acknowledgeRemotionLicense
 					className="overflow-hidden rounded-xl"
 				/>
 			)}
