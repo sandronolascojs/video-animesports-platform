@@ -23,7 +23,14 @@ import {
 	PlusIcon,
 	XIcon,
 } from "lucide-react";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 
 import { MainButton } from "@/components/kit/main-button";
 import { Button } from "@/components/ui/button";
@@ -43,13 +50,16 @@ import {
 } from "@/feature/studio/hooks/use-render-export";
 import {
 	clampSeconds,
-	DEFAULT_PX_PER_SECOND,
+	FALLBACK_PX_PER_SECOND,
+	fitPxPerSecond,
 	formatTimecode,
 	framesToSeconds,
 	isZoomWheelEvent,
 	MAX_PX_PER_SECOND,
 	MIN_PX_PER_SECOND,
 	MIN_RULER_SECONDS,
+	RULER_INSET_PX,
+	rulerTicksFor,
 	scrollLeftForZoomAtPointer,
 	secondsToFrames,
 	zoomByFactor,
@@ -105,7 +115,12 @@ export function TimelineStrip() {
 		isPlayingNow,
 	} = usePlayerPlayback();
 
-	const [pxPerSecond, setPxPerSecond] = useState(DEFAULT_PX_PER_SECOND);
+	const [pxPerSecond, setPxPerSecond] = useState(FALLBACK_PX_PER_SECOND);
+	// Measured width of the scroll container's content box — feeds
+	// `fitPxPerSecond` below (Problem 1: fit-to-width base zoom). Starts at 0
+	// (unmeasured); the layout effect further down corrects this — and
+	// re-clamps `pxPerSecond` — before the first paint.
+	const [measuredWidthPx, setMeasuredWidthPx] = useState(0);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	// State (not a ref): only flips twice per scrub gesture (down/up), so the
 	// re-render cost is negligible, and the playhead handle needs it as a
@@ -113,7 +128,8 @@ export function TimelineStrip() {
 	const [isScrubbing, setIsScrubbing] = useState(false);
 	const resumeAfterScrubRef = useRef(false);
 	// Captured at wheel-zoom time, consumed by the layout effect below once
-	// the DOM reflects the new `trackWidthPx` — see `handleWheel`.
+	// the DOM reflects the new `trackWidthPx` — see the native wheel listener
+	// effect further down.
 	const pendingZoomRef = useRef<{
 		pointerXPx: number;
 		previousScrollLeft: number;
@@ -131,8 +147,62 @@ export function TimelineStrip() {
 		(total, entry) => total + entry.durationSeconds,
 		0,
 	);
-	const rulerSeconds = Math.max(totalSeconds, MIN_RULER_SECONDS);
+	// The timeline's own content length (clips), floored so a near-empty
+	// project still shows a usable stretch of track. This drives the initial
+	// fit-to-width zoom (below) — the default view fills the width with exactly
+	// the content.
+	const contentSeconds = Math.max(totalSeconds, MIN_RULER_SECONDS);
+	// Premiere-style full-width ruler: the ruler/track ALWAYS span the full
+	// container width. `visibleSeconds` is how much time the viewport shows at
+	// the current zoom; the ruler draws at least that many seconds, so when the
+	// user zooms OUT past the content it keeps laying ticks + numbers across the
+	// empty track after the last clip ("extends to the end of the zoom")
+	// instead of collapsing the timeline into the left with dead space on the
+	// right. Zoomed IN, `contentSeconds` wins and the track scrolls.
+	const usableWidthPx = Math.max(measuredWidthPx - RULER_INSET_PX * 2, 0);
+	const visibleSeconds =
+		pxPerSecond > 0 ? usableWidthPx / pxPerSecond : contentSeconds;
+	const rulerSeconds = Math.max(contentSeconds, visibleSeconds);
 	const trackWidthPx = rulerSeconds * pxPerSecond;
+	const hasScenes = timeline.length > 0;
+
+	// Problem 1 (fit-to-width): measure the scroll container so the timeline
+	// always spans its full available width instead of a fixed default scale
+	// leaving dead space on the right. Re-attaches whenever the container
+	// mounts/unmounts (`hasScenes` toggling the empty state below) so a
+	// timeline that starts empty still gets measured once scenes appear.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `hasScenes` isn't read in the effect body, but it's the signal that `scrollRef.current` just got mounted/unmounted (a plain ref read doesn't itself trigger a re-run) — dropping it would leave a newly-mounted container unmeasured until some unrelated re-render happened to fire first.
+	useLayoutEffect(() => {
+		const container = scrollRef.current;
+		if (!container) {
+			return;
+		}
+		const measure = () => setMeasuredWidthPx(container.clientWidth);
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(container);
+		return () => observer.disconnect();
+	}, [hasScenes]);
+
+	const fit = useMemo(
+		() => fitPxPerSecond(measuredWidthPx, contentSeconds),
+		[measuredWidthPx, contentSeconds],
+	);
+
+	// Default zoom = fit-to-width, applied ONCE on the first real measurement
+	// (Premiere-style: fit is the initial view, not a floor — see time.ts). A
+	// layout effect (not a plain effect) so the swap from the arbitrary
+	// `FALLBACK_PX_PER_SECOND` seed to the real fit scale lands in the SAME
+	// pre-paint flush as the measurement above, with no visible jump. Guarded
+	// by a ref so later re-measures (resize, scene add) keep the user's own
+	// zoom instead of yanking it back to fit.
+	const didInitZoomRef = useRef(false);
+	useLayoutEffect(() => {
+		if (measuredWidthPx > 0 && !didInitZoomRef.current) {
+			didInitZoomRef.current = true;
+			setPxPerSecond(fit);
+		}
+	}, [fit, measuredWidthPx]);
 
 	const { clips, boundarySeconds } = useMemo(() => {
 		let cursor = 0;
@@ -150,6 +220,20 @@ export function TimelineStrip() {
 		return { boundarySeconds: nextBoundaries, clips: nextClips };
 	}, [orderedScenes, pxPerSecond]);
 
+	// Faint vertical grid lines down the track at the same major-tick cadence
+	// as the ruler — the "editor lines" that make the track read as an NLE lane
+	// (aligned to the ruler numbers above) instead of clips floating in a void.
+	const gridlines = useMemo(() => {
+		const { majorStepSeconds } = rulerTicksFor(pxPerSecond);
+		const count = Math.floor(rulerSeconds / majorStepSeconds);
+		const lines: Array<{ seconds: number; leftPx: number }> = [];
+		for (let index = 0; index <= count; index++) {
+			const seconds = index * majorStepSeconds;
+			lines.push({ leftPx: seconds * pxPerSecond, seconds });
+		}
+		return lines;
+	}, [pxPerSecond, rulerSeconds]);
+
 	const seekToClientX = useCallback(
 		(clientX: number) => {
 			const container = scrollRef.current;
@@ -157,8 +241,13 @@ export function TimelineStrip() {
 				return;
 			}
 			const rect = container.getBoundingClientRect();
+			// `- RULER_INSET_PX`: the track's second-0 mark sits `RULER_INSET_PX`
+			// in from the scroll container's own left edge (see the inset
+			// wrapper in the render below), so pointer math has to shift by the
+			// same amount to land on the right instant.
 			const rawSeconds =
-				(clientX - rect.left + container.scrollLeft) / pxPerSecond;
+				(clientX - rect.left - RULER_INSET_PX + container.scrollLeft) /
+				pxPerSecond;
 			let seconds = clampSeconds(rawSeconds, totalSeconds);
 
 			const snapThresholdSeconds = SNAP_THRESHOLD_PX / pxPerSecond;
@@ -242,25 +331,37 @@ export function TimelineStrip() {
 		);
 	}, [pxPerSecond]);
 
-	const handleWheel = useCallback(
-		(event: React.WheelEvent<HTMLDivElement>) => {
-			const container = scrollRef.current;
+	// Problem 3 (critical): pinch-zooming the timeline must never ALSO zoom
+	// the browser page. React's `onWheel` is a PASSIVE listener by default, so
+	// `event.preventDefault()` inside a JSX `onWheel` handler is silently
+	// ignored — the browser's native pinch-zoom (which also fires as
+	// `ctrlKey` + wheel) still runs. The only fix is a real, non-passive
+	// listener attached imperatively, so both the zoom AND pan branches live
+	// here instead of in a JSX `onWheel` prop. Re-attaches on `hasScenes`
+	// (container mount/unmount).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `hasScenes` isn't read in the effect body, but (like the measurement effect above) it's the signal that `scrollRef.current` just got mounted/unmounted.
+	useEffect(() => {
+		const container = scrollRef.current;
+		if (!container) {
+			return;
+		}
 
+		const handleWheelNative = (event: WheelEvent) => {
 			// Pinch-zoom (every OS) and the explicit Cmd/Ctrl+wheel shortcut.
 			if (isZoomWheelEvent(event)) {
 				event.preventDefault();
-				if (container) {
-					const pointerXPx =
-						event.clientX - container.getBoundingClientRect().left;
+				event.stopPropagation();
+				const pointerXPx =
+					event.clientX - container.getBoundingClientRect().left;
+				const factor = event.deltaY > 0 ? 1 / 1.08 : 1.08;
+				setPxPerSecond((current) => {
 					pendingZoomRef.current = {
 						pointerXPx,
-						previousPxPerSecond: pxPerSecond,
+						previousPxPerSecond: current,
 						previousScrollLeft: container.scrollLeft,
 					};
-				}
-				setPxPerSecond(
-					zoomByFactor(pxPerSecond, event.deltaY > 0 ? 1 / 1.08 : 1.08),
-				);
+					return zoomByFactor(current, factor);
+				});
 				return;
 			}
 
@@ -269,13 +370,17 @@ export function TimelineStrip() {
 			// deltaY), a genuine horizontal trackpad swipe reports deltaX
 			// directly, so prefer whichever axis actually moved.
 			const panDeltaPx = event.deltaX || event.deltaY;
-			if (container && panDeltaPx !== 0) {
+			if (panDeltaPx !== 0) {
 				event.preventDefault();
 				container.scrollLeft += panDeltaPx;
 			}
-		},
-		[pxPerSecond],
-	);
+		};
+
+		container.addEventListener("wheel", handleWheelNative, {
+			passive: false,
+		});
+		return () => container.removeEventListener("wheel", handleWheelNative);
+	}, [hasScenes]);
 
 	const handleDragEnd = (event: DragEndEvent) => {
 		const { active, over } = event;
@@ -321,13 +426,17 @@ export function TimelineStrip() {
 				<div className="flex-1" />
 
 				<ButtonGroup>
+					{/* Premiere-style zoom over the absolute [MIN, MAX] px/s range —
+					    "−" pulls away from the timeline (below the fit scale, dead
+					    space on the right) until MIN, "+" zooms in to inspect until
+					    MAX (see time.ts). */}
 					<Button
 						type="button"
 						variant="ghost"
 						size="icon-xs"
 						className="text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
 						disabled={pxPerSecond <= MIN_PX_PER_SECOND}
-						onClick={() => setPxPerSecond(zoomOutStep)}
+						onClick={() => setPxPerSecond((current) => zoomOutStep(current))}
 					>
 						<MinusIcon className="size-3" />
 						<span className="sr-only">Zoom out</span>
@@ -338,7 +447,7 @@ export function TimelineStrip() {
 						size="icon-xs"
 						className="text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
 						disabled={pxPerSecond >= MAX_PX_PER_SECOND}
-						onClick={() => setPxPerSecond(zoomInStep)}
+						onClick={() => setPxPerSecond((current) => zoomInStep(current))}
 					>
 						<PlusIcon className="size-3" />
 						<span className="sr-only">Zoom in</span>
@@ -381,7 +490,7 @@ export function TimelineStrip() {
 				) : null}
 			</div>
 
-			{timeline.length === 0 ? (
+			{!hasScenes ? (
 				<div className="flex min-h-0 flex-1 items-center justify-center gap-2 rounded-xl border border-border/60 border-dashed text-muted-foreground text-sm">
 					<ClapperboardIcon className="size-4" />
 					No scenes yet — the timeline appears here once you add one.
@@ -390,74 +499,100 @@ export function TimelineStrip() {
 				<div
 					ref={scrollRef}
 					className="scrollbar-thin relative min-h-0 flex-1 overflow-x-auto overflow-y-hidden"
-					onWheel={handleWheel}
 				>
-					<div className="relative" style={{ width: trackWidthPx }}>
-						<TimelineRuler
-							pxPerSecond={pxPerSecond}
-							rulerSeconds={rulerSeconds}
-							widthPx={trackWidthPx}
-							onScrubPointerDown={handleScrubPointerDown}
-							onScrubPointerMove={handleScrubPointerMove}
-							onScrubPointerEnd={handleScrubPointerEnd}
-						/>
-
-						<DndContext
-							// Explicit `id` (not dnd-kit's auto-generated one): the
-							// auto-generated id is a module-level counter that can
-							// legitimately differ between the SSR pass and the client's
-							// first hydration render (e.g. React 19 dev double-render),
-							// producing an `aria-describedby` mismatch — a documented
-							// dnd-kit SSR gotcha, fixed by pinning a stable id.
-							id="studio-timeline-dnd"
-							sensors={sensors}
-							collisionDetection={closestCenter}
-							onDragEnd={handleDragEnd}
+					{/* Outer content box reserves `RULER_INSET_PX` of scrollable
+					    space on BOTH edges — at fit zoom this makes the scrollable
+					    content exactly match the container's width (no leftover
+					    scroll room), while giving the 0:00 / end labels breathing
+					    room instead of sitting flush against the container edge. */}
+					<div style={{ width: trackWidthPx + RULER_INSET_PX * 2 }}>
+						<div
+							className="relative"
+							style={{ marginLeft: RULER_INSET_PX, width: trackWidthPx }}
 						>
-							<SortableContext
-								items={timeline.map((entry) => entry.sceneId)}
-								strategy={horizontalListSortingStrategy}
-							>
-								<div
-									className="relative mt-1"
-									style={{ height: TRACK_HEIGHT_PX, width: trackWidthPx }}
-								>
-									{/* Background scrub target — sits behind the clips (DOM order), so pointer events land on whichever is topmost at that x/y with no propagation tricks needed. */}
-									<div
-										className="absolute inset-0 touch-none"
-										onPointerDown={handleScrubPointerDown}
-										onPointerMove={handleScrubPointerMove}
-										onPointerUp={handleScrubPointerEnd}
-										onPointerCancel={handleScrubPointerEnd}
-									/>
-									{orderedScenes.map(({ entry, scene }, index) => {
-										const layout = clips[index];
-										if (!layout) {
-											return null;
-										}
-										return (
-											<TimelineClip
-												key={entry.sceneId}
-												entry={entry}
-												scene={scene}
-												leftPx={layout.leftPx}
-												widthPx={layout.widthPx}
-												isSelected={selectedSceneId === entry.sceneId}
-												onSelect={selectScene}
-											/>
-										);
-									})}
-								</div>
-							</SortableContext>
-						</DndContext>
+							<TimelineRuler
+								pxPerSecond={pxPerSecond}
+								rulerSeconds={rulerSeconds}
+								widthPx={trackWidthPx}
+								onScrubPointerDown={handleScrubPointerDown}
+								onScrubPointerMove={handleScrubPointerMove}
+								onScrubPointerEnd={handleScrubPointerEnd}
+							/>
 
-						<TimelinePlayhead
-							leftPx={playheadLeftPx}
-							isScrubbing={isScrubbing}
-							onScrubPointerDown={handleScrubPointerDown}
-							onScrubPointerMove={handleScrubPointerMove}
-							onScrubPointerEnd={handleScrubPointerEnd}
-						/>
+							<DndContext
+								// Explicit `id` (not dnd-kit's auto-generated one): the
+								// auto-generated id is a module-level counter that can
+								// legitimately differ between the SSR pass and the client's
+								// first hydration render (e.g. React 19 dev double-render),
+								// producing an `aria-describedby` mismatch — a documented
+								// dnd-kit SSR gotcha, fixed by pinning a stable id.
+								id="studio-timeline-dnd"
+								sensors={sensors}
+								collisionDetection={closestCenter}
+								onDragEnd={handleDragEnd}
+							>
+								<SortableContext
+									items={timeline.map((entry) => entry.sceneId)}
+									strategy={horizontalListSortingStrategy}
+								>
+									{/* Editor track lane: a full-width band with a subtle fill
+									    and inset hairline so clips sit INSIDE a visible track
+									    (and the empty track past the last clip still reads as a
+									    lane when zoomed out) instead of floating on black. */}
+									<div
+										className="relative mt-1 overflow-hidden rounded-lg bg-white/[0.02] ring-1 ring-border/40 ring-inset"
+										style={{ height: TRACK_HEIGHT_PX, width: trackWidthPx }}
+									>
+										{/* Vertical grid lines aligned to the ruler's major ticks. */}
+										<div
+											aria-hidden
+											className="pointer-events-none absolute inset-0"
+										>
+											{gridlines.map((line) => (
+												<div
+													key={line.seconds}
+													className="absolute inset-y-0 w-px bg-border/25"
+													style={{ left: line.leftPx }}
+												/>
+											))}
+										</div>
+										{/* Background scrub target — sits behind the clips (DOM order), so pointer events land on whichever is topmost at that x/y with no propagation tricks needed. */}
+										<div
+											className="absolute inset-0 touch-none"
+											onPointerDown={handleScrubPointerDown}
+											onPointerMove={handleScrubPointerMove}
+											onPointerUp={handleScrubPointerEnd}
+											onPointerCancel={handleScrubPointerEnd}
+										/>
+										{orderedScenes.map(({ entry, scene }, index) => {
+											const layout = clips[index];
+											if (!layout) {
+												return null;
+											}
+											return (
+												<TimelineClip
+													key={entry.sceneId}
+													entry={entry}
+													scene={scene}
+													leftPx={layout.leftPx}
+													widthPx={layout.widthPx}
+													isSelected={selectedSceneId === entry.sceneId}
+													onSelect={selectScene}
+												/>
+											);
+										})}
+									</div>
+								</SortableContext>
+							</DndContext>
+
+							<TimelinePlayhead
+								leftPx={playheadLeftPx}
+								isScrubbing={isScrubbing}
+								onScrubPointerDown={handleScrubPointerDown}
+								onScrubPointerMove={handleScrubPointerMove}
+								onScrubPointerEnd={handleScrubPointerEnd}
+							/>
+						</div>
 					</div>
 				</div>
 			)}

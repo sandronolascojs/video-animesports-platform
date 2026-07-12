@@ -8,16 +8,67 @@ export const STUDIO_FPS = 30;
 
 // ---- Zoom (px-per-second scale) --------------------------------------------
 
-export const MIN_PX_PER_SECOND = 16;
-export const MAX_PX_PER_SECOND = 160;
-export const DEFAULT_PX_PER_SECOND = 48;
+/**
+ * Seed value for `pxPerSecond` state before the timeline strip's first
+ * layout measurement lands (`timeline-strip.tsx`'s `ResizeObserver` effect)
+ * — a `useLayoutEffect` swaps in `fitPxPerSecond` synchronously before paint,
+ * so this value never actually reaches the screen; it only avoids a 0/NaN
+ * scale for one render pass.
+ */
+export const FALLBACK_PX_PER_SECOND = 48;
 /** Ruler keeps drawing at least this many seconds of track even for a near-empty timeline. */
 export const MIN_RULER_SECONDS = 15;
+/**
+ * Horizontal breathing room (px), reserved on BOTH edges of the scrollable
+ * track/ruler content, so the `0:00` label and the last major tick's label
+ * always have room to render fully instead of sitting flush against — or
+ * bleeding past — the scroll container's edge.
+ */
+export const RULER_INSET_PX = 20;
+/**
+ * Absolute zoom bounds (px per second) — a pro-NLE (Premiere-style) model:
+ * zoom is NOT pinned to fit. `fitPxPerSecond` is only the INITIAL/default
+ * scale (fills the width on load); from there the user can zoom OUT below it
+ * — the timeline shrinks and leaves dead space on the right, exactly like a
+ * short sequence in Premiere — all the way down to `MIN_PX_PER_SECOND`, or
+ * zoom IN up to `MAX_PX_PER_SECOND` to inspect individual seconds/frames.
+ */
+export const MIN_PX_PER_SECOND = 20;
+export const MAX_PX_PER_SECOND = 240;
+/**
+ * Alias kept for the `fitPxPerSecond` fallback and its tests — a
+ * not-yet-measured (0px) or vanishingly small container can never divide into
+ * zero/negative/unusable, it floors at the same minimum the zoom does.
+ */
+export const ABSOLUTE_MIN_PX_PER_SECOND = MIN_PX_PER_SECOND;
 
 const ZOOM_STEP = 1.25;
 
+/**
+ * Clamps `pxPerSecond` into the absolute `[MIN_PX_PER_SECOND,
+ * MAX_PX_PER_SECOND]` zoom range. Bounds no longer depend on the container's
+ * measured width — the fit-to-width scale is just the default seed, not a
+ * floor, so the user can freely zoom past it in either direction.
+ */
 export function clampPxPerSecond(pxPerSecond: number): number {
 	return Math.min(MAX_PX_PER_SECOND, Math.max(MIN_PX_PER_SECOND, pxPerSecond));
+}
+
+/**
+ * Default zoom on load: the px/second scale that makes `rulerSeconds` of
+ * timeline exactly fill `availableWidthPx` (minus `RULER_INSET_PX` on both
+ * edges), clamped into the absolute zoom range. Falls back to the minimum for
+ * a not-yet-measured or effectively empty container/ruler range.
+ */
+export function fitPxPerSecond(
+	availableWidthPx: number,
+	rulerSeconds: number,
+): number {
+	if (rulerSeconds <= 0) {
+		return ABSOLUTE_MIN_PX_PER_SECOND;
+	}
+	const usableWidthPx = Math.max(availableWidthPx - RULER_INSET_PX * 2, 0);
+	return clampPxPerSecond(usableWidthPx / rulerSeconds);
 }
 
 export function zoomInStep(pxPerSecond: number): number {
