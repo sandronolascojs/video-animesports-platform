@@ -4,6 +4,7 @@ import {
 	PAGE_SIZE_OPTIONS,
 	type PaginationMeta,
 } from "@video-platform-challenge/types";
+import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
 
 import {
@@ -29,6 +30,9 @@ export type ListPaginationProps = {
 	onPageChange: (page: number) => void;
 	onPageSizeChange?: (pageSize: number) => void;
 	className?: string;
+	/** Dims the pager and shows a spinner in the range summary — height stays
+	 * identical, navigation stays enabled (a client-side refetch in flight). */
+	isLoading?: boolean;
 };
 
 function pageNumbers(
@@ -64,6 +68,7 @@ export function ListPagination({
 	onPageChange,
 	onPageSizeChange,
 	className,
+	isLoading,
 }: ListPaginationProps) {
 	const { page, pageSize, total, totalPages } = meta;
 	// m1 fix: `meta.page` just echoes back whatever the URL asked for
@@ -92,12 +97,15 @@ export function ListPagination({
 				className,
 			)}
 		>
-			<p className="text-muted-foreground text-sm">
+			<p className="flex items-center gap-2 text-muted-foreground text-sm">
+				{isLoading ? (
+					<Loader2 className="size-3.5 shrink-0 motion-safe:animate-spin" />
+				) : null}
 				{total === 0
 					? "No items"
 					: `Showing ${startItem}–${endItem} of ${total}`}
 			</p>
-			<div className="flex items-center gap-4">
+			<div className={cn("flex items-center gap-4", isLoading && "opacity-60")}>
 				{onPageSizeChange ? (
 					<Select
 						value={String(pageSize)}

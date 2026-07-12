@@ -157,6 +157,7 @@ export function ProjectsView() {
 			paginationMeta={data?.meta}
 			onPageChange={(page) => setPagination({ page })}
 			onPageSizeChange={(pageSize) => setPagination({ pageSize, page: 1 })}
+			paginationLoading={isPlaceholderData}
 		>
 			{showSkeletons ? (
 				<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

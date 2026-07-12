@@ -324,6 +324,7 @@ export function AssetsView() {
 			paginationMeta={data?.meta}
 			onPageChange={(next) => setParams({ page: next })}
 			onPageSizeChange={(next) => setParams({ pageSize: next, page: 1 })}
+			paginationLoading={isPlaceholderData}
 		>
 			{showSkeletons ? (
 				<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -16,6 +16,9 @@ export type ResourceLayoutProps = {
 	onPageChange?: (page: number) => void;
 	onPageSizeChange?: (pageSize: number) => void;
 	className?: string;
+	/** Forwarded to `ListPagination`'s `isLoading` — a client-side page/filter
+	 * refetch in flight, distinct from the initial-load card skeletons. */
+	paginationLoading?: boolean;
 };
 
 /**
@@ -33,6 +36,7 @@ export function ResourceLayout({
 	onPageChange,
 	onPageSizeChange,
 	className,
+	paginationLoading,
 }: ResourceLayoutProps) {
 	return (
 		<div
@@ -72,6 +76,7 @@ export function ResourceLayout({
 					meta={paginationMeta}
 					onPageChange={onPageChange}
 					onPageSizeChange={onPageSizeChange}
+					isLoading={paginationLoading}
 				/>
 			) : null}
 		</div>
