@@ -51,6 +51,7 @@ import {
 } from "../lib/extension-plan-merge";
 import { formatFailReason } from "../lib/fail-reason";
 import { classifyIngestFailure } from "../lib/ingest-failure";
+import { notifyProjectEvent } from "../lib/notify-project-event";
 import { normalizeProjectPlan } from "../lib/plan-compat";
 import { buildAssetR2Key, DEFAULT_CONTENT_TYPE_BY_KIND } from "../lib/r2-keys";
 import { resolveSceneVoice } from "../lib/scene-voice";
@@ -305,7 +306,7 @@ export async function runPlanStep(
 	userId: string,
 	projectId: string,
 ): Promise<PlanStepResult | null> {
-	return withUser(db, userId, async (tx) => {
+	const result = await withUser(db, userId, async (tx) => {
 		const project = await projectRepository.findById(tx, userId, projectId);
 		if (!project) {
 			return null;
@@ -429,6 +430,26 @@ export async function runPlanStep(
 
 		return { project: updatedProject, scenes: updatedScenes };
 	});
+
+	// RT-3 (docs realtime-and-render-lock-v1.md §1 piece 4): broadcast AFTER
+	// the transaction has committed, never from inside it — a Postgres
+	// transaction should never sit open across the DO's network round trip
+	// (mirrors fetchAndPutToR2's own "outside any DB transaction" doc
+	// comment). One `scene` event per scene the plan step just flipped to
+	// `keyframe_pending`.
+	if (result) {
+		for (const scene of result.scenes) {
+			await notifyProjectEvent(env, {
+				type: "scene",
+				projectId,
+				sceneId: scene.id,
+				status: SceneStatus.KEYFRAME_PENDING,
+				at: Date.now(),
+			});
+		}
+	}
+
+	return result;
 }
 
 export interface ExtensionPlanStepResult {
@@ -450,7 +471,7 @@ export async function runExtensionPlanStep(
 	sceneId: string,
 	prompt?: string,
 ): Promise<ExtensionPlanStepResult | null> {
-	return withUser(db, userId, async (tx) => {
+	const result = await withUser(db, userId, async (tx) => {
 		const project = await projectRepository.findById(tx, userId, projectId);
 		if (!project?.plan) {
 			return null;
@@ -606,6 +627,20 @@ export async function runExtensionPlanStep(
 
 		return { project: updatedProject, scene: updatedScene };
 	});
+
+	// RT-3: same "broadcast after commit, never inside the tx" rule as
+	// runPlanStep above — this is the scene-extension counterpart, one scene.
+	if (result) {
+		await notifyProjectEvent(env, {
+			type: "scene",
+			projectId,
+			sceneId: result.scene.id,
+			status: SceneStatus.KEYFRAME_PENDING,
+			at: Date.now(),
+		});
+	}
+
+	return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -1236,22 +1271,35 @@ export async function attachEndKeyframe(
 	sceneId: string,
 	assetId: string,
 ): Promise<void> {
-	await withUser(db, userId, async (tx) => {
+	const outcome = await withUser(db, userId, async (tx) => {
 		const scene = await sceneRepository.findById(tx, userId, sceneId);
 		if (!scene) {
-			return;
+			return null;
 		}
 		// The workflow attaches start keyframes before end keyframes within
 		// each scene's fencing pair (docs §2's sequential K1..KN+1 pass), so
 		// seeing both here means fencing is complete for this scene.
-		const status = scene.startKeyframeAssetId
-			? SceneStatus.KEYFRAME_READY
-			: scene.status;
+		const becomesReady = Boolean(scene.startKeyframeAssetId);
+		const status = becomesReady ? SceneStatus.KEYFRAME_READY : scene.status;
 		await sceneRepository.updateById(tx, userId, sceneId, {
 			endKeyframeAssetId: assetId,
 			status,
 		});
+		// RT-3: only a REAL keyframe_ready transition is worth a broadcast —
+		// re-attaching an end keyframe before the start anchor exists leaves
+		// `scene.status` unchanged, nothing for a client to react to.
+		return becomesReady ? { projectId: scene.projectId } : null;
 	});
+
+	if (outcome) {
+		await notifyProjectEvent(env, {
+			type: "scene",
+			projectId: outcome.projectId,
+			sceneId,
+			status: SceneStatus.KEYFRAME_READY,
+			at: Date.now(),
+		});
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1269,11 +1317,20 @@ export async function markSceneVideoPending(
 	userId: string,
 	sceneId: string,
 ): Promise<void> {
-	await withUser(db, userId, (tx) =>
+	const updated = await withUser(db, userId, (tx) =>
 		sceneRepository.updateById(tx, userId, sceneId, {
 			status: SceneStatus.VIDEO_PENDING,
 		}),
 	);
+	if (updated) {
+		await notifyProjectEvent(env, {
+			type: "scene",
+			projectId: updated.projectId,
+			sceneId,
+			status: SceneStatus.VIDEO_PENDING,
+			at: Date.now(),
+		});
+	}
 }
 
 export async function createSceneVideoTask(args: {
@@ -1354,7 +1411,7 @@ export async function ingestSceneVideo(args: {
 		generationTaskId: args.generationTaskId,
 	});
 
-	return withUser(db, args.userId, async (tx) => {
+	const asset = await withUser(db, args.userId, async (tx) => {
 		// Fix-pass W7a: this doubles as B1's FOR-UPDATE lock ordering (project
 		// lock before scene/asset writes) AND the project-existence guard —
 		// vanished mid-flight -> return null quietly instead of hitting an FK
@@ -1406,6 +1463,21 @@ export async function ingestSceneVideo(args: {
 		);
 		return asset;
 	});
+
+	// RT-3: broadcast the scene's `video_ready` transition after the
+	// transaction committed — the doc's explicit "ingestSceneVideo (→
+	// video_ready)" notify point.
+	if (asset) {
+		await notifyProjectEvent(env, {
+			type: "scene",
+			projectId: args.projectId,
+			sceneId: args.sceneId,
+			status: SceneStatus.VIDEO_READY,
+			at: Date.now(),
+		});
+	}
+
+	return asset;
 }
 
 // ---------------------------------------------------------------------------
@@ -1567,11 +1639,19 @@ export async function markProjectPlanning(
 	userId: string,
 	projectId: string,
 ): Promise<void> {
-	await withUser(db, userId, (tx) =>
+	const updated = await withUser(db, userId, (tx) =>
 		projectRepository.updateById(tx, userId, projectId, {
 			status: ProjectStatus.PLANNING,
 		}),
 	);
+	if (updated) {
+		await notifyProjectEvent(env, {
+			type: "project",
+			projectId,
+			status: ProjectStatus.PLANNING,
+			at: Date.now(),
+		});
+	}
 }
 
 /**
@@ -1584,11 +1664,19 @@ export async function markProjectGenerating(
 	userId: string,
 	projectId: string,
 ): Promise<void> {
-	await withUser(db, userId, (tx) =>
+	const updated = await withUser(db, userId, (tx) =>
 		projectRepository.updateById(tx, userId, projectId, {
 			status: ProjectStatus.GENERATING,
 		}),
 	);
+	if (updated) {
+		await notifyProjectEvent(env, {
+			type: "project",
+			projectId,
+			status: ProjectStatus.GENERATING,
+			at: Date.now(),
+		});
+	}
 }
 
 /** Project-level failure — used when nothing scene-scoped exists yet to
@@ -1614,12 +1702,21 @@ export async function markSceneFailed(
 	sceneId: string,
 	reason: string,
 ): Promise<void> {
-	await withUser(db, userId, (tx) =>
+	const updated = await withUser(db, userId, (tx) =>
 		sceneRepository.updateById(tx, userId, sceneId, {
 			status: SceneStatus.FAILED,
 			failReason: reason,
 		}),
 	);
+	if (updated) {
+		await notifyProjectEvent(env, {
+			type: "scene",
+			projectId: updated.projectId,
+			sceneId,
+			status: SceneStatus.FAILED,
+			at: Date.now(),
+		});
+	}
 }
 
 /**
@@ -1682,10 +1779,10 @@ export async function finalizeProject(
 	userId: string,
 	projectId: string,
 ): Promise<void> {
-	await withUser(db, userId, async (tx) => {
+	const finalStatus = await withUser(db, userId, async (tx) => {
 		const project = await projectRepository.findById(tx, userId, projectId);
 		if (!project) {
-			return;
+			return null;
 		}
 
 		const scenes = await sceneRepository.findManyByProjectId(
@@ -1696,10 +1793,22 @@ export async function finalizeProject(
 		const anyReady = scenes.some(
 			(scene) => scene.status === SceneStatus.VIDEO_READY,
 		);
+		const status = anyReady ? ProjectStatus.READY : ProjectStatus.FAILED;
 
 		await projectRepository.updateById(tx, userId, projectId, {
-			status: anyReady ? ProjectStatus.READY : ProjectStatus.FAILED,
+			status,
 			failReason: anyReady ? null : "All scenes failed to generate.",
 		});
+
+		return status;
 	});
+
+	if (finalStatus) {
+		await notifyProjectEvent(env, {
+			type: "project",
+			projectId,
+			status: finalStatus,
+			at: Date.now(),
+		});
+	}
 }

@@ -3,6 +3,7 @@ import alchemy from "alchemy";
 import {
 	AccountApiToken,
 	AccountId,
+	DurableObjectNamespace,
 	Nextjs,
 	R2Bucket,
 	Worker,
@@ -89,6 +90,26 @@ export const videoGenerationWorkflow = Workflow<VideoGenerationWorkflowParams>(
 	},
 );
 
+// Per-project SSE fan-out relay (RT-3, docs
+// realtime-and-render-lock-v1.md §1): one Durable Object instance per
+// project holds that project's connected EventSource clients and pushes
+// each already-persisted status transition to them — Postgres stays the
+// source of truth (the DO is a fan-out relay only, no authoritative state).
+// Mirrors `videoGenerationWorkflow` above: the concrete `ProjectEventsDO`
+// class lives in apps/server (src/durable/project-events.ts) and is
+// re-exported from src/index.ts so alchemy can resolve it by `className`
+// off the compiled worker script, same mechanism as
+// `VideoGenerationWorkflow`. Left untyped (no generic type param, unlike
+// `Workflow<VideoGenerationWorkflowParams>` above) for the same reason that
+// type is hand-mirrored instead of imported: infra and the Worker script
+// are separate TS programs, so this file can't `import type` the real class
+// from apps/server. apps/server narrows `env.PROJECT_EVENTS` to the real
+// class's RPC shape locally instead (see lib/notify-project-event.ts's doc
+// comment).
+export const projectEventsNamespace = DurableObjectNamespace("project-events", {
+	className: "ProjectEventsDO",
+});
+
 export const bucket = await R2Bucket("video-storage", {
 	name: bucketName,
 	devDomain: false,
@@ -143,6 +164,7 @@ export const server = await Worker("server", {
 		KIE_WEBHOOK_SECRET: process.env.KIE_WEBHOOK_SECRET ?? "dev-placeholder",
 		AI_GATEWAY_API_KEY: alchemy.secret.env.AI_GATEWAY_API_KEY!,
 		VIDEO_GENERATION_WORKFLOW: videoGenerationWorkflow,
+		PROJECT_EVENTS: projectEventsNamespace,
 	},
 	dev: { port: 3000 },
 });

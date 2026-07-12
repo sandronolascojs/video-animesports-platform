@@ -1,3 +1,10 @@
+// RT-1 (docs realtime-and-render-lock-v1.md §3, "current-language only"):
+// export intentionally burns each scene's single `subtitleText` exactly as
+// authored — the project's `subtitleLanguage` at generation time — into
+// every frame via `drawSubtitle` below. There is deliberately no
+// export-time language selector: a scene never carries more than one
+// subtitle track, so there is nothing else to select. No behavior change,
+// just documenting the intent so it stays deliberate.
 import type {
 	Scene,
 	SubtitleStyle,

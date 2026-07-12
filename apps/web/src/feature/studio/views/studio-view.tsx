@@ -3,6 +3,7 @@
 import type { ProjectDetail } from "@video-platform-challenge/api";
 import { AnimatePresence } from "motion/react";
 
+import { FirstRunOverlay } from "@/feature/studio/components/first-run-overlay";
 import { HistoryPanel } from "@/feature/studio/components/history-panel";
 import { LeftPanel } from "@/feature/studio/components/left-panel";
 import { PlayerCanvas } from "@/feature/studio/components/player-canvas";
@@ -10,9 +11,15 @@ import { StudioDock } from "@/feature/studio/components/studio-dock";
 import { StudioTopbar } from "@/feature/studio/components/studio-topbar";
 import { TimelineStrip } from "@/feature/studio/components/timeline-strip";
 import { RenderExportProvider } from "@/feature/studio/hooks/use-render-export";
+import {
+	isFirstGeneration,
+	isFirstGenerationFailure,
+} from "@/feature/studio/lib/first-run";
 import { DraftStoreProvider } from "@/feature/studio/stores/draft-store-provider";
 import { PlayerRefProvider } from "@/feature/studio/stores/player-ref-context";
 import { useStudioChat } from "@/feature/studio/stores/studio-chat-provider";
+import { useStudio } from "@/feature/studio/stores/use-studio";
+import { cn } from "@/libs/utils";
 
 /**
  * Studio shell layout (docs/studio-ui.md §1 diagram): topbar, left
@@ -27,6 +34,18 @@ function StudioViewInner({ projectId }: { projectId: string }) {
 	// AIDock only renders while `AgentChatSidebar` (mounted by this route's
 	// `layout.tsx`, a sibling of this view) is closed.
 	const { isOpen: isChatOpen } = useStudioChat();
+
+	// RT-2 (docs realtime-and-render-lock-v1.md §2): blocks the editor
+	// region behind a frosted overlay ONLY for a project's first-ever
+	// generation (never extend/retry — see lib/first-run.ts's doc comments).
+	// Computed here (not just inside `FirstRunOverlay`) because the editor
+	// region's own `aria-hidden`/`pointer-events-none` gating below must stay
+	// in lockstep with whether the overlay is actually mounted.
+	const { project, scenesById } = useStudio();
+	const scenes = Object.values(scenesById);
+	const showFirstRunOverlay =
+		isFirstGeneration(project, scenes) ||
+		isFirstGenerationFailure(project, scenes);
 
 	return (
 		// `h-[calc(100svh-1rem)]` (not `h-full`): the shared `(private)` shell
@@ -45,13 +64,35 @@ function StudioViewInner({ projectId }: { projectId: string }) {
 			<RenderExportProvider>
 				<div className="relative flex h-svh min-h-0 flex-col gap-3 p-3">
 					<StudioTopbar />
-					<div className="grid min-h-0 flex-1 grid-cols-[20rem_1fr_18rem] gap-3">
-						<LeftPanel />
-						<PlayerCanvas />
-						<HistoryPanel />
-					</div>
-					<div className="h-52 shrink-0">
-						<TimelineStrip />
+					{/* The blocked "editor region" (RT-2 §2): grid + timeline only —
+					    the topbar above and the AI dock below both stay interactive
+					    ("Back to home", chatting mid-generation). `relative` anchors
+					    `FirstRunOverlay`'s `absolute inset-0`; `aria-hidden` +
+					    `pointer-events-none` block the region for a11y and pointer
+					    input while it stays fully visible and animating underneath
+					    the glass. */}
+					<div className="relative flex min-h-0 flex-1 flex-col gap-3">
+						<div
+							aria-hidden={showFirstRunOverlay || undefined}
+							className={cn(
+								"grid min-h-0 flex-1 grid-cols-[20rem_1fr_18rem] gap-3",
+								showFirstRunOverlay && "pointer-events-none",
+							)}
+						>
+							<LeftPanel />
+							<PlayerCanvas />
+							<HistoryPanel />
+						</div>
+						<div
+							aria-hidden={showFirstRunOverlay || undefined}
+							className={cn(
+								"h-52 shrink-0",
+								showFirstRunOverlay && "pointer-events-none",
+							)}
+						>
+							<TimelineStrip />
+						</div>
+						{showFirstRunOverlay ? <FirstRunOverlay /> : null}
 					</div>
 					{/* `AnimatePresence` (not a bare conditional) so the dock's own
 					    `exit` transition (`ai-dock.tsx`) plays when `AgentChatSidebar`
