@@ -1,7 +1,10 @@
-// Pure predicates + copy for the first-version glass overlay (RT-2, docs
-// realtime-and-render-lock-v1.md §2). Kept side-effect-free so
-// `first-run-overlay.tsx` and `studio-view.tsx` share the exact same
-// derivation instead of two components quietly drifting apart.
+"use client";
+
+// Pure predicates + copy for a project's first-ever generation (RT-2, docs
+// realtime-and-render-lock-v1.md §2). Side-effect-free so the non-blocking
+// player generating-state (`player-generating-state.tsx`) and the completion
+// toast (`use-first-run-toast.tsx`) share the exact same derivation instead
+// of each re-deriving it and quietly drifting apart.
 import type { Project, Scene } from "@video-platform-challenge/api";
 import { ProjectStatus, SceneStatus } from "@video-platform-challenge/types";
 
@@ -12,13 +15,17 @@ function hasReadyScene(scenes: readonly Scene[]): boolean {
 }
 
 /**
- * True while a project's FIRST-EVER generation is in flight: the project
- * hasn't settled to a terminal status yet, and no scene has reached
- * `video_ready`. `extend` only ever runs on an already-`ready` project
- * (which by definition already has ≥1 `video_ready` scene), so this is
- * exclusively true during the first run and lifts the instant the first
- * scene lands or the project reaches a terminal status — never re-triggers
- * for a later extend/retry.
+ * True while a project's first-ever generation is still in flight: the
+ * project hasn't settled to a terminal status yet AND no scene has ever
+ * reached `video_ready`. Pure snapshot predicate — no latch, no history.
+ *
+ * `extend` only ever starts from an already-`ready` project (which by
+ * definition has ≥1 `video_ready` scene), so this is `false` for every
+ * extend/retry-of-a-finished-project — it isolates the FIRST generation from
+ * any later one. The moment the first scene lands (`video_ready`) this flips
+ * `false` even though the project stays active, so the player hands off from
+ * the generating-state to the real timeline (ready clips + pending
+ * placeholders) exactly when there is finally something to play.
  */
 export function isFirstGeneration(
 	project: Project,
@@ -31,8 +38,10 @@ export function isFirstGeneration(
  * True when the project's first-ever generation ended in `failed` before
  * any scene ever reached `video_ready`. Distinct from a later extend/retry
  * failure (which always has ≥1 `video_ready` scene already, since extend
- * only runs on a `ready` project) — this is the overlay's error/Retry state,
- * not a general "project failed" flag.
+ * only runs on a `ready` project) — this is the player's error/Retry state,
+ * not a general "project failed" flag. Snapshot-only: this predicate alone
+ * is enough to tell a first-run failure apart from any other kind, so it
+ * stays correct even across a page reload mid-failure.
  */
 export function isFirstGenerationFailure(
 	project: Project,
@@ -42,9 +51,9 @@ export function isFirstGenerationFailure(
 }
 
 /**
- * Live status copy for the overlay (docs §2: "Planning the story…",
- * "Generating keyframes…", "Generating scene N…"). Only ever called while
- * `isFirstGeneration` is true, so `project.status` is always one of
+ * Live status copy for the player generating-state (docs §2: "Planning the
+ * story…", "Generating keyframes…", "Generating scene N…"). Only ever called
+ * while `isFirstGeneration` is true, so `project.status` is always one of
  * draft/planning/storyboard/generating/assembling — never ready/failed.
  */
 export function describeFirstRunStatus(
