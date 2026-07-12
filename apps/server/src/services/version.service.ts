@@ -18,6 +18,7 @@ import {
 	isUniqueViolationError,
 	withUser,
 } from "@video-platform-challenge/db";
+import { env } from "@video-platform-challenge/env/server";
 import { headObject } from "@video-platform-challenge/storage";
 import {
 	AssetStatus,
@@ -29,8 +30,11 @@ import {
 
 import type { Context } from "../lib/context";
 import { runMarkRendered } from "../lib/mark-rendered";
+import { notifyProjectEvent } from "../lib/notify-project-event";
+import { canRenderProject, RENDER_GUARD_MESSAGE } from "../lib/render-guard";
 import * as assetRepository from "../repositories/asset.repository";
 import * as projectRepository from "../repositories/project.repository";
+import * as sceneRepository from "../repositories/scene.repository";
 import type { VersionRow } from "../repositories/version.repository";
 import * as versionRepository from "../repositories/version.repository";
 import * as generationService from "./generation.service";
@@ -71,6 +75,13 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
  * backstop (fix-pass C1 — a partial unique index allows at most one
  * `rendering` row per project, so a lost race surfaces as a unique
  * violation here, translated to CONFLICT).
+ *
+ * RT-1 (docs realtime-and-render-lock-v1.md §3): also CONFLICTs when the
+ * project isn't `ready` or any of its scenes hasn't reached `video_ready`
+ * yet — `lib/render-guard.ts`'s `canRenderProject`. The client's own
+ * `canRender` preflight (use-render-export.tsx) already guards the button,
+ * but this is the real safety net: it closes the agent's `render_version`
+ * tool and any direct API call, not just the button.
  */
 type RenderOptions = { session: SessionUser } & RenderVersionInput;
 
@@ -86,6 +97,15 @@ export async function render({
 		);
 		if (!project) {
 			throw new ORPCError("NOT_FOUND");
+		}
+
+		const scenes = await sceneRepository.findManyByProjectId(
+			tx,
+			session.user.id,
+			projectId,
+		);
+		if (!canRenderProject(project.status, scenes)) {
+			throw new ORPCError("CONFLICT", { message: RENDER_GUARD_MESSAGE });
 		}
 
 		// WARNING fix (LIGHT touch): mirrors the other MAX_*_PER_HOUR
@@ -274,7 +294,7 @@ export async function markRendered({
 		});
 	}
 
-	return withUser(db, userId, async (tx) => {
+	const versionDto = await withUser(db, userId, async (tx) => {
 		await assetRepository.updateById(tx, userId, outcome.assetId, {
 			status: AssetStatus.READY,
 			size: outcome.head.size,
@@ -290,6 +310,20 @@ export async function markRendered({
 		}
 		return toVersionDto(row);
 	});
+
+	// RT-3 (docs realtime-and-render-lock-v1.md §1 piece 4): broadcast AFTER
+	// the transaction committed, mirroring generation.service.ts's own
+	// "never inside the tx" rule — History updates live too, not just the
+	// generating-state overlay.
+	await notifyProjectEvent(env, {
+		type: "version",
+		projectId: versionDto.projectId,
+		versionId: versionDto.id,
+		status: versionDto.status,
+		at: Date.now(),
+	});
+
+	return versionDto;
 }
 
 /**
@@ -312,20 +346,34 @@ export async function cancel({
 }: CancelOptions): Promise<CancelVersionOutput> {
 	const userId = session.user.id;
 
-	return withUser(db, userId, async (tx) => {
+	const canceledVersionId = await withUser(db, userId, async (tx) => {
 		const rendering = await versionRepository.findRenderingByProjectId(
 			tx,
 			userId,
 			projectId,
 		);
 		if (!rendering) {
-			return { canceled: false };
+			return null;
 		}
 
 		await versionRepository.updateStatus(tx, userId, rendering.id, {
 			status: VersionStatus.FAILED,
 			failReason: "canceled",
 		});
-		return { canceled: true };
+		return rendering.id;
 	});
+
+	if (!canceledVersionId) {
+		return { canceled: false };
+	}
+
+	// RT-3: same "broadcast after commit" rule as markRendered above.
+	await notifyProjectEvent(env, {
+		type: "version",
+		projectId,
+		versionId: canceledVersionId,
+		status: VersionStatus.FAILED,
+		at: Date.now(),
+	});
+	return { canceled: true };
 }

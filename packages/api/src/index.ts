@@ -5,6 +5,7 @@ export * from "./schemas/asset";
 export * from "./schemas/auth";
 export * from "./schemas/page";
 export * from "./schemas/project";
+export * from "./schemas/project-event";
 export * from "./schemas/scene";
 export * from "./schemas/search";
 export * from "./schemas/story";

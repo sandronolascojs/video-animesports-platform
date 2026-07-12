@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { createContext, useContext, useEffect, useState } from "react";
 import { useStore } from "zustand";
 import { useProject } from "@/feature/studio/hooks/http/use-project";
+import { useProjectEvents } from "@/feature/studio/hooks/http/use-project-events";
 import { useDraftPersistence } from "@/feature/studio/hooks/use-draft-persistence";
 import {
 	createDraftStore,
@@ -22,12 +23,18 @@ export type DraftStoreProviderProps = {
 };
 
 /**
- * Keeps the draft store's reconcile side in sync with the polled
- * `projects.get` query (docs' generating-state polling + reconcile rule —
- * see draft-store.ts's `applyServerSnapshot` doc comment). Takes `store` as a
- * prop (zustand's `useStore`, not the context hook) so it can render as a
- * child of `DraftStoreContext.Provider` without importing the context
- * indirection just for this one effect.
+ * Keeps the draft store's reconcile side in sync with the `projects.get`
+ * query (docs' generating-state reconcile rule — see draft-store.ts's
+ * `applyServerSnapshot` doc comment). Takes `store` as a prop (zustand's
+ * `useStore`, not the context hook) so it can render as a child of
+ * `DraftStoreContext.Provider` without importing the context indirection
+ * just for this one effect.
+ *
+ * RT-3 (docs realtime-and-render-lock-v1.md §1 piece 6): also opens the SSE
+ * channel here, alongside the poll it's meant to outrun — both ultimately
+ * just invalidate/refetch the SAME `projects.get` query this component
+ * already reconciles from, so they share one mount point instead of two
+ * independent effects racing each other.
  */
 function ProjectSync({
 	store,
@@ -37,6 +44,7 @@ function ProjectSync({
 	projectId: string;
 }) {
 	const { data } = useProject(projectId);
+	useProjectEvents(projectId);
 	const applyServerSnapshot = useStore(
 		store,
 		(state) => state.applyServerSnapshot,

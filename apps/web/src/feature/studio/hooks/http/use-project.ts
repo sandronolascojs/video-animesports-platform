@@ -32,7 +32,15 @@ const TERMINAL_PROJECT_STATUSES: readonly ProjectStatus[] = [
 	ProjectStatus.FAILED,
 ];
 
-const POLL_INTERVAL_MS = 2500;
+// RT-3 (docs realtime-and-render-lock-v1.md §1): the SSE channel
+// (`use-project-events.ts`, wired alongside this hook in
+// `draft-store-provider.tsx`'s `ProjectSync`) is now the fast path — this
+// poll only needs to be a resilience fallback that guarantees eventual
+// consistency if the SSE connection never opens at all (mobile background, a
+// proxy that kills SSE, the DO itself unreachable). Slowed from the
+// pre-RT-3 2.5s down to ~20s accordingly (doc §1 client piece: "keep
+// refetchInterval but slow it to ~15-20s").
+const POLL_INTERVAL_MS = 20_000;
 
 /**
  * True while the project itself hasn't settled to a terminal status yet
@@ -54,9 +62,10 @@ function projectQueryKey(projectId: string) {
 
 /**
  * Studio's polling surface (docs/studio-ui.md §0, §4): full project detail
- * (project row + scenes + assets + versions), refetched every 2.5s while
- * generation is in flight anywhere in the project, off once everything has
- * settled to a terminal state (ready/failed).
+ * (project row + scenes + assets + versions), refetched every ~20s while
+ * generation is in flight anywhere in the project — a fallback behind the
+ * SSE fast path (see `POLL_INTERVAL_MS`'s own comment) — off once everything
+ * has settled to a terminal state (ready/failed).
  */
 export function useProject(projectId: string) {
 	return useQuery(

@@ -33,8 +33,9 @@ function isToolResultPart(part: UIMessage["parts"][number]): part is ToolPart {
 // itself (docs/ai-architecture-v1.md §2: long-running generations "return
 // immediately once the work is queued... the existing polling/SSE keeps the
 // editor honest"). After any of these completes, `projects.get` is
-// invalidated so the editor's own 2.5s poll (`useProject`) doesn't sit on a
-// stale snapshot for up to one more tick.
+// invalidated so the editor doesn't sit on a stale snapshot until the RT-3
+// SSE channel's next pushed event (or the slow fallback poll's next tick —
+// `useProject`).
 const PROJECT_MUTATING_TOOL_PART_TYPES = new Set([
 	"tool-extend_scenes",
 	"tool-retry_scene",

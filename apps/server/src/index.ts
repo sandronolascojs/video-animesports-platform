@@ -11,22 +11,25 @@ import type { UIMessage } from "ai";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { ProjectEventsDO } from "./durable/project-events";
 import {
 	agentChatRequestBodySchema,
 	MAX_AGENT_CHAT_BODY_BYTES,
 } from "./lib/agent-chat-request";
 import { createContext } from "./lib/context";
+import type { ProjectEventsEnv } from "./lib/notify-project-event";
 import * as generationTaskRepository from "./repositories/generation-task.repository";
 import { appRouter } from "./routers";
 import { buildStudioChat } from "./services/agent-chat.service";
 import { handleKieWebhook } from "./services/generation-webhook.service";
+import { canAccessProjectEvents } from "./services/project-events.service";
 import { VideoGenerationWorkflow } from "./workflows/video-generation";
 
-// Re-exported (not just defined) so the compiled worker script exposes it as
-// a named export — the VIDEO_GENERATION_WORKFLOW binding in
-// packages/infra/alchemy.run.ts resolves this class by `className` off this
-// entrypoint module.
-export { VideoGenerationWorkflow };
+// Re-exported (not just defined) so the compiled worker script exposes them
+// as named exports — the VIDEO_GENERATION_WORKFLOW / PROJECT_EVENTS bindings
+// in packages/infra/alchemy.run.ts resolve these classes by `className` off
+// this entrypoint module.
+export { ProjectEventsDO, VideoGenerationWorkflow };
 
 const app = new Hono();
 
@@ -156,6 +159,39 @@ app.post("/agent/:projectId/chat", async (c) => {
 			return "The agent hit an error — try again.";
 		},
 	});
+});
+
+// RT-3 SSE status channel (docs realtime-and-render-lock-v1.md §1 piece 3):
+// mirrors `/agent/:projectId/chat`'s auth pattern above (session extraction,
+// 401 on miss, ownership check, 404 on miss) but forwards the actual
+// response to the project's `ProjectEventsDO` instead of handling it inline
+// — a plain `fetch` handler on Workers can't hold a long-lived connection,
+// the DO is the primitive that can. CORS is already covered by the blanket
+// `cors()` middleware registered on `"/*"` above, same as `/agent`.
+app.get("/projects/:projectId/events", async (c) => {
+	const { session } = await createContext({ context: c });
+	if (!session?.user) {
+		return c.text("Unauthorized", 401);
+	}
+
+	const projectId = c.req.param("projectId");
+	const authorized = await canAccessProjectEvents(session.user.id, projectId);
+	if (!authorized) {
+		return c.text("Not Found", 404);
+	}
+
+	// Narrowed the same way `lib/notify-project-event.ts` narrows it (see that
+	// file's doc comment): `env.PROJECT_EVENTS`'s ambient type is the
+	// alchemy-produced `DurableObjectNamespace<any>` (infra can't `import
+	// type` the real class — see alchemy.run.ts's `projectEventsNamespace`
+	// doc comment), and calling `.get()` directly against the `any`-typed
+	// binding sends `tsc` into an "excessively deep" instantiation trying to
+	// resolve `Fetcher<any>`'s RPC surface. Casting through the real class
+	// first keeps this call properly typed AND finite.
+	const projectEvents =
+		env.PROJECT_EVENTS as ProjectEventsEnv["PROJECT_EVENTS"];
+	const id = projectEvents.idFromName(projectId);
+	return projectEvents.get(id).fetch(c.req.raw);
 });
 
 export const apiHandler = new OpenAPIHandler(appRouter, {
