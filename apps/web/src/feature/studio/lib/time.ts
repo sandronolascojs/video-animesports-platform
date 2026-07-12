@@ -33,6 +33,40 @@ export function zoomByFactor(pxPerSecond: number, factor: number): number {
 	return clampPxPerSecond(pxPerSecond * factor);
 }
 
+/**
+ * True for a wheel event that should zoom the timeline rather than pan it.
+ * Trackpad pinch-zoom fires as a wheel event with `ctrlKey: true` on EVERY
+ * OS (a browser convention, not an actually-held Ctrl key) — a Mac-only
+ * `metaKey` check misses pinch entirely. `ctrlKey || metaKey` covers pinch
+ * everywhere AND the explicit Cmd+wheel (Mac) / Ctrl+wheel (elsewhere)
+ * modifier shortcut, so no platform branch is needed here at all.
+ */
+export function isZoomWheelEvent(event: {
+	ctrlKey: boolean;
+	metaKey: boolean;
+}): boolean {
+	return event.ctrlKey || event.metaKey;
+}
+
+/**
+ * New scroll-container `scrollLeft` that keeps the timeline instant under
+ * `pointerXPx` (viewport px, relative to the scroll container's left edge)
+ * visually fixed while `pxPerSecond` changes — the "zoom under the cursor"
+ * behavior every pro timeline/map view has. Re-derives the seconds under the
+ * pointer at the OLD scale, then re-projects that same instant at the NEW
+ * scale and subtracts the pointer offset back out.
+ */
+export function scrollLeftForZoomAtPointer(
+	previousScrollLeft: number,
+	pointerXPx: number,
+	previousPxPerSecond: number,
+	nextPxPerSecond: number,
+): number {
+	const secondsUnderPointer =
+		(previousScrollLeft + pointerXPx) / previousPxPerSecond;
+	return secondsUnderPointer * nextPxPerSecond - pointerXPx;
+}
+
 // ---- Frame <-> second conversions ------------------------------------------
 
 export function secondsToFrames(

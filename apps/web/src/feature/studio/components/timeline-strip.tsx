@@ -23,8 +23,9 @@ import {
 	PlusIcon,
 	XIcon,
 } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { MainButton } from "@/components/kit/main-button";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import {
@@ -45,16 +46,17 @@ import {
 	DEFAULT_PX_PER_SECOND,
 	formatTimecode,
 	framesToSeconds,
+	isZoomWheelEvent,
 	MAX_PX_PER_SECOND,
 	MIN_PX_PER_SECOND,
 	MIN_RULER_SECONDS,
+	scrollLeftForZoomAtPointer,
 	secondsToFrames,
 	zoomByFactor,
 	zoomInStep,
 	zoomOutStep,
 } from "@/feature/studio/lib/time";
 import { useStudio } from "@/feature/studio/stores/use-studio";
-import { usePlatform } from "@/hooks/use-platform";
 
 /** Rendered clip width shrinks by this many px so a hairline gap shows between adjacent clips — purely cosmetic, `leftPx` (time-based) is untouched so ruler/playhead alignment never drifts (see timeline-clip.tsx doc comment). */
 const CLIP_GAP_PX = 2;
@@ -93,7 +95,6 @@ export function TimelineStrip() {
 		selectScene,
 	} = useStudio();
 	const { canRender, cancel, isRunning, start, state } = useRenderExport();
-	const { isMac } = usePlatform();
 	const {
 		frame,
 		isPlaying,
@@ -106,8 +107,18 @@ export function TimelineStrip() {
 
 	const [pxPerSecond, setPxPerSecond] = useState(DEFAULT_PX_PER_SECOND);
 	const scrollRef = useRef<HTMLDivElement>(null);
-	const scrubbingRef = useRef(false);
+	// State (not a ref): only flips twice per scrub gesture (down/up), so the
+	// re-render cost is negligible, and the playhead handle needs it as a
+	// render input to spring while any scrub is in flight (docs §3c).
+	const [isScrubbing, setIsScrubbing] = useState(false);
 	const resumeAfterScrubRef = useRef(false);
+	// Captured at wheel-zoom time, consumed by the layout effect below once
+	// the DOM reflects the new `trackWidthPx` — see `handleWheel`.
+	const pendingZoomRef = useRef<{
+		pointerXPx: number;
+		previousScrollLeft: number;
+		previousPxPerSecond: number;
+	} | null>(null);
 
 	const sensors = useSensors(
 		useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -180,7 +191,7 @@ export function TimelineStrip() {
 			if (resumeAfterScrubRef.current) {
 				pause();
 			}
-			scrubbingRef.current = true;
+			setIsScrubbing(true);
 			seekToClientX(event.clientX);
 		},
 		[isPlayingNow, pause, seekToClientX],
@@ -188,20 +199,20 @@ export function TimelineStrip() {
 
 	const handleScrubPointerMove = useCallback(
 		(event: React.PointerEvent<HTMLDivElement>) => {
-			if (!scrubbingRef.current) {
+			if (!isScrubbing) {
 				return;
 			}
 			seekToClientX(event.clientX);
 		},
-		[seekToClientX],
+		[isScrubbing, seekToClientX],
 	);
 
 	const handleScrubPointerEnd = useCallback(
 		(event: React.PointerEvent<HTMLDivElement>) => {
-			if (!scrubbingRef.current) {
+			if (!isScrubbing) {
 				return;
 			}
-			scrubbingRef.current = false;
+			setIsScrubbing(false);
 			if (event.currentTarget.hasPointerCapture(event.pointerId)) {
 				event.currentTarget.releasePointerCapture(event.pointerId);
 			}
@@ -210,21 +221,60 @@ export function TimelineStrip() {
 				play();
 			}
 		},
-		[play],
+		[isScrubbing, play],
 	);
+
+	// Cursor-anchored zoom: the layout effect below runs after `pxPerSecond`
+	// has already re-rendered `trackWidthPx` into the DOM (but before paint),
+	// so it can set `scrollLeft` from the NEW width without a visible flash.
+	useLayoutEffect(() => {
+		const pending = pendingZoomRef.current;
+		const container = scrollRef.current;
+		if (!pending || !container) {
+			return;
+		}
+		pendingZoomRef.current = null;
+		container.scrollLeft = scrollLeftForZoomAtPointer(
+			pending.previousScrollLeft,
+			pending.pointerXPx,
+			pending.previousPxPerSecond,
+			pxPerSecond,
+		);
+	}, [pxPerSecond]);
 
 	const handleWheel = useCallback(
 		(event: React.WheelEvent<HTMLDivElement>) => {
-			const isZoomGesture = isMac ? event.metaKey : event.ctrlKey;
-			if (!isZoomGesture) {
+			const container = scrollRef.current;
+
+			// Pinch-zoom (every OS) and the explicit Cmd/Ctrl+wheel shortcut.
+			if (isZoomWheelEvent(event)) {
+				event.preventDefault();
+				if (container) {
+					const pointerXPx =
+						event.clientX - container.getBoundingClientRect().left;
+					pendingZoomRef.current = {
+						pointerXPx,
+						previousPxPerSecond: pxPerSecond,
+						previousScrollLeft: container.scrollLeft,
+					};
+				}
+				setPxPerSecond(
+					zoomByFactor(pxPerSecond, event.deltaY > 0 ? 1 / 1.08 : 1.08),
+				);
 				return;
 			}
-			event.preventDefault();
-			setPxPerSecond((current) =>
-				zoomByFactor(current, event.deltaY > 0 ? 1 / 1.08 : 1.08),
-			);
+
+			// Plain wheel / two-finger scroll pans horizontally — a vertical
+			// mouse-wheel delta is the common case (most mice only report
+			// deltaY), a genuine horizontal trackpad swipe reports deltaX
+			// directly, so prefer whichever axis actually moved.
+			const panDeltaPx = event.deltaX || event.deltaY;
+			if (container && panDeltaPx !== 0) {
+				event.preventDefault();
+				container.scrollLeft += panDeltaPx;
+			}
 		},
-		[isMac],
+		[pxPerSecond],
 	);
 
 	const handleDragEnd = (event: DragEndEvent) => {
@@ -273,8 +323,9 @@ export function TimelineStrip() {
 				<ButtonGroup>
 					<Button
 						type="button"
-						variant="outline"
+						variant="ghost"
 						size="icon-xs"
+						className="text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
 						disabled={pxPerSecond <= MIN_PX_PER_SECOND}
 						onClick={() => setPxPerSecond(zoomOutStep)}
 					>
@@ -283,8 +334,9 @@ export function TimelineStrip() {
 					</Button>
 					<Button
 						type="button"
-						variant="outline"
+						variant="ghost"
 						size="icon-xs"
+						className="text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
 						disabled={pxPerSecond >= MAX_PX_PER_SECOND}
 						onClick={() => setPxPerSecond(zoomInStep)}
 					>
@@ -296,14 +348,14 @@ export function TimelineStrip() {
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<span>
-							<Button
+							<MainButton
 								type="button"
 								size="sm"
 								disabled={isRunning || timeline.length === 0 || !canRender}
 								onClick={start}
 							>
 								{renderButtonLabel(state)}
-							</Button>
+							</MainButton>
 						</span>
 					</TooltipTrigger>
 					{!canRender && timeline.length > 0 ? (
@@ -401,6 +453,7 @@ export function TimelineStrip() {
 
 						<TimelinePlayhead
 							leftPx={playheadLeftPx}
+							isScrubbing={isScrubbing}
 							onScrubPointerDown={handleScrubPointerDown}
 							onScrubPointerMove={handleScrubPointerMove}
 							onScrubPointerEnd={handleScrubPointerEnd}

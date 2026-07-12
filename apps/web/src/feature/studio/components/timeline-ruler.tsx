@@ -67,15 +67,17 @@ export function TimelineRuler({
 				>
 					<div
 						className={
-							tick.isMajor ? "h-2.5 w-px bg-border" : "h-1.5 w-px bg-border/50"
+							tick.isMajor
+								? "h-2.5 w-px bg-border/60"
+								: "h-1.5 w-px bg-border/30"
 						}
 					/>
 					{tick.isMajor ? (
 						<span
 							className={
 								tick.seconds === 0
-									? "absolute bottom-2.5 left-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground"
-									: "absolute bottom-2.5 left-0 -translate-x-1/2 whitespace-nowrap font-mono text-[10px] text-muted-foreground"
+									? "absolute bottom-2.5 left-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground tabular-nums"
+									: "absolute bottom-2.5 left-0 -translate-x-1/2 whitespace-nowrap font-mono text-[10px] text-muted-foreground tabular-nums"
 							}
 						>
 							{formatRulerLabel(tick.seconds)}

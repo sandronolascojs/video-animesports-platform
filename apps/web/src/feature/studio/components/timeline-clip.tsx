@@ -5,9 +5,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { Scene, TimelineEntry } from "@video-platform-challenge/api";
 import { SceneStatus } from "@video-platform-challenge/types";
 
-import { Badge } from "@/components/ui/badge";
 import { useAssetUrl } from "@/feature/studio/hooks/http/use-asset-url";
-import { gradientForScene } from "@/feature/studio/remotion/composition";
 import { cn } from "@/libs/utils";
 
 export type TimelineClipProps = {
@@ -27,29 +25,26 @@ const GENERATING_STATUSES: ReadonlySet<Scene["status"]> = new Set([
 ]);
 
 /**
- * Keyframe thumbnail tiled across the clip's width, like a filmstrip band —
- * cheap (one signed URL, CSS `repeat-x`) but reads as a real editor filmstrip
- * instead of a single stretched frame. Falls back to the exact same
- * hash-based gradient `composition.tsx` renders as this scene's Player
- * placeholder, so the fallback is visually consistent across canvas and
- * timeline.
+ * Keyframe thumbnail tiled across the clip's full bleed, filmstrip-style
+ * (`repeat-x` at the frame's own aspect, not a single stretched frame) —
+ * cheap (one signed URL, CSS tiling) but reads as a real editor filmstrip.
+ * No keyframe yet (still planned/generating) falls back to a single subtle
+ * `bg-muted` surface (docs/studio-design-language.md §3c: a calm monochrome
+ * placeholder here, NOT the saturated per-scene gradient the Player canvas
+ * uses as ITS OWN placeholder — the two surfaces are allowed to diverge on
+ * this one point, since a wall of rainbow blocks is exactly the "basic" look
+ * this redesign removes from the timeline).
  */
 function ClipFilmstrip({ scene }: { scene: Scene }) {
 	const { data } = useAssetUrl(scene.startKeyframeAssetId);
 
 	if (!data) {
-		const [from, to] = gradientForScene(scene.id);
-		return (
-			<div
-				className="h-9 w-full shrink-0"
-				style={{ backgroundImage: `linear-gradient(135deg, ${from}, ${to})` }}
-			/>
-		);
+		return <div className="absolute inset-0 bg-muted" />;
 	}
 
 	return (
 		<div
-			className="h-9 w-full shrink-0 bg-black/20 bg-repeat-x"
+			className="absolute inset-0 bg-black/20 bg-repeat-x"
 			style={{
 				backgroundImage: `url(${data.url})`,
 				backgroundSize: "auto 100%",
@@ -68,6 +63,11 @@ function ClipFilmstrip({ scene }: { scene: Scene }) {
  * offset that drifts the track out of alignment with the ruler). Reordering
  * still works: dnd-kit's sortable strategy measures actual DOM rects, which
  * works identically under absolute positioning.
+ *
+ * The filmstrip fills the whole clip (`absolute inset-0`); title + duration
+ * float over the bottom edge on a legibility scrim so they stay readable
+ * over any thumbnail brightness, instead of squeezing the filmstrip band
+ * into a shorter fixed-height strip above a separate label row.
  */
 export function TimelineClip({
 	entry,
@@ -104,26 +104,31 @@ export function TimelineClip({
 			{...listeners}
 			onClick={() => onSelect(entry.sceneId)}
 			className={cn(
-				"absolute flex h-20 cursor-grab touch-none flex-col justify-between overflow-hidden rounded-lg border border-border/60 bg-card active:cursor-grabbing",
+				"absolute h-20 cursor-grab touch-none overflow-hidden rounded-lg border border-border/60 bg-muted active:cursor-grabbing",
 				isDragging && "z-30 opacity-50",
 				isFailed && "border-destructive/60",
-				isSelected && "ring-2 ring-primary",
+				isSelected && "ring-1 ring-ring",
 			)}
 		>
-			{isGenerating && !isSelected ? (
-				<div className="pointer-events-none absolute inset-0 animate-pulse rounded-lg ring-1 ring-primary/50" />
-			) : null}
 			<ClipFilmstrip scene={scene} />
-			<div className="flex min-w-0 items-center justify-between gap-1 px-2 py-1.5">
-				<span className="min-w-0 flex-1 truncate text-xs">
+
+			{isGenerating ? (
+				<div className="pointer-events-none absolute inset-0 bg-foreground/5 motion-safe:animate-pulse" />
+			) : null}
+
+			{/* Legibility scrim — keeps the label row readable over any thumbnail. */}
+			<div
+				aria-hidden
+				className="pointer-events-none absolute inset-x-0 bottom-0 h-9 bg-gradient-to-t from-black/60 to-transparent"
+			/>
+
+			<div className="absolute inset-x-0 bottom-0 flex min-w-0 items-center justify-between gap-1 px-2 py-1.5">
+				<span className="min-w-0 flex-1 truncate text-foreground text-xs">
 					{scene.title ?? "Untitled scene"}
 				</span>
-				<Badge
-					variant="secondary"
-					className="h-4 shrink-0 px-1.5 font-mono text-[10px]"
-				>
+				<span className="shrink-0 font-mono text-[10px] text-muted-foreground tabular-nums">
 					{entry.durationSeconds.toFixed(1)}s
-				</Badge>
+				</span>
 			</div>
 		</div>
 	);
