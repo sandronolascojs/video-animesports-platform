@@ -1,12 +1,12 @@
 # Studio UI — View Flows, Layout, Agent Dock, Component Map
 
-> Companion to `video-engine-architecture.md`. Defines every view's flow (Home → Generating → Studio), the Studio screen (edit + versions + agent), the chat-driven editing agent, and the exact mapping onto the components already installed (shadcn/ui radix-nova ×60, AI Elements ×48). Minimal, dark, Knock/Higgsfield-style. Motion rules follow `.agents/skills/emil-design-eng`.
+> Companion to `video-engine-architecture.md`. Defines every view's flow (Home → Generating → Studio), the Studio screen (edit + versions + agent), the chat-driven editing agent, and the exact mapping onto the components already installed (shadcn/ui radix-nova ×60, AI Elements ×48). Minimal, dark, modern creative-tool style. Motion rules follow `.agents/skills/emil-design-eng`.
 
 ## 0. View flows
 
 ### Home (`app/(private)/page.tsx`) — "what are we creating today?"
 
-Higgsfield-style hero, Krea-style template cards. Base scaffold: `bunx --bun shadcn@latest add dashboard-01`, then strip it — we keep the sidebar shell (`collapsible="icon"`, ultra-narrow icon rail like the reference) and the layout patterns, delete the demo charts/tables.
+Bold hero, media-forward template cards. Base scaffold: `bunx --bun shadcn@latest add dashboard-01`, then strip it — we keep the sidebar shell (`collapsible="icon"`, ultra-narrow icon rail) and the layout patterns, delete the demo charts/tables.
 
 ```
 ┌──┬───────────────────────────────────────────────┐
@@ -22,7 +22,7 @@ Higgsfield-style hero, Krea-style template cards. Base scaffold: `bunx --bun sha
 └──┴───────────────────────────────────────────────┘
 ```
 
-- **Sidebar (shadcn Sidebar, Higgsfield-style)**: **expanded by default (~16rem), collapsible to icon rail** via the header toggle — smooth shadcn collapse animation, floating `surface-panel` card inset from the viewport edge. Structure top→bottom: header (logo/wordmark + collapse toggle), **"New project" prominent pill button** (rounded-full, jewel `+` icon, kbd hint on hover), Search item, "Projects" group label + recent project rows, footer (theme toggle + user menu). **Lucide icons only.** Never hand-rolled — shadcn `Sidebar` primitives throughout.
+- **Sidebar (shadcn Sidebar)**: **expanded by default (~16rem), collapsible to icon rail** via the header toggle — smooth shadcn collapse animation, floating `surface-panel` card inset from the viewport edge. Structure top→bottom: header (logo/wordmark + collapse toggle), **"New project" prominent pill button** (rounded-full, jewel `+` icon, kbd hint on hover), Search item, "Projects" group label + recent project rows, footer (theme toggle + user menu). **Lucide icons only.** Never hand-rolled — shadcn `Sidebar` primitives throughout.
 - **Auth guard (SSR)**: the whole `(private)` group is protected at the **layout** level — the server layout calls better-auth's session over SSR (`authClient.getSession({ headers })`, the existing pattern) and `redirect("/login")` when unauthenticated. No private page renders without a session.
 - **Forms rule (app-wide)**: **react-hook-form + `@hookform/resolvers` zodResolver ONLY** — the shared zod schemas from `@video-platform-challenge/api` plug into `zodResolver`. `@tanstack/react-form` is removed.
 - **Layout sizing rule**: page shells use **`min-h-svh`** (not fixed heights) so every view adjusts to the viewport correctly; inner panels flex/scroll within it.
@@ -32,9 +32,9 @@ Higgsfield-style hero, Krea-style template cards. Base scaffold: `bunx --bun sha
   - Store: `open<K extends keyof DialogPayloads>(key: K, payload: DialogPayloads[K])` / `close()`; a `useDialog()` hook exposes both, fully typed — opening a modal with the wrong payload is a compile error.
   - `DialogProvider` holds a `Record<key, LazyComponent>` map — each modal is **lazy-loaded** (`next/dynamic`) and only mounted while open. Modals are shadcn `Dialog`/`AlertDialog` restyled to the design language.
   - New modal = add registry key + lazy component entry. No inline `useState` dialogs anywhere.
-- **Template cards**: one per sport (soccer, basketball, baseball, tennis), each with a **pre-generated anime image** (generated ONCE with gpt-image-2 at build/seed time, stored as static assets/R2 — never generated per pageview). Fanned/tilted arrangement like Krea's tool cards.
+- **Template cards**: one per sport (soccer, basketball, baseball, tennis), each with a **pre-generated anime image** (generated ONCE with gpt-image-2 at build/seed time, stored as static assets/R2 — never generated per pageview). Fanned/tilted arrangement.
 - **Creation options in the composer toolbar**: selector dropdowns (ProviderSelector pattern — borderless trigger, lucide icon + label, radix Select rows) in the input's bottom-left slot. **Aspect ratio selector (16:9 / 9:16) — HOME ONLY**: aspect ratio is immutable after creation and is read from the project everywhere in the Studio; the Studio dock never shows it. **Language selectors (voice + subtitle) appear in BOTH the Home composer and the Studio dock** (prefilled from the template default — anime → Japanese voice; in Studio they read/write the project's language settings).
-- **Hover fills the input** (the Krea knight interaction): hovering a card previews that template's example prompt inside the input as **ghost text** (muted color, fades in 150ms ease-out). Mouse leaves → ghost fades out. **Click commits**: the prompt becomes real input value, input focuses, template is selected (card gets a selected ring). User can edit before submitting. If the user already typed something, hover does NOT override — ghost only shows on empty input.
+- **Hover fills the input**: hovering a card previews that template's example prompt inside the input as **ghost text** (muted color, fades in 150ms ease-out). Mouse leaves → ghost fades out. **Click commits**: the prompt becomes real input value, input focuses, template is selected (card gets a selected ring). User can edit before submitting. If the user already typed something, hover does NOT override — ghost only shows on empty input.
 - **Submit** (Enter or ↑ button): `projects.create({ templateKey, description })` → route to `/projects/[id]` which opens in the **generating state** (below).
 
 ### Login (`app/(auth)/login/page.tsx` + `app/(auth)/signup/page.tsx`)
@@ -63,7 +63,7 @@ If the user closes the tab mid-generation: state is in Postgres; reopening the p
 
 Defined in §1–§2 below (canvas + timeline + history + agent dock).
 
-### Design language — Higgsfield-quality recipes (extracted from their live HTML)
+### Design language — high-quality recipes
 
 The reference markup shows exactly how that "expensive" look is built. We replicate these as reusable utilities in `globals.css` (mapped to OUR theme tokens, not their lime):
 
@@ -86,7 +86,7 @@ The reference markup shows exactly how that "expensive" look is built. We replic
 
 The dock is modeled on a proven AIPanel/AIInputBar/AIDock trio. **In scope: the input bar, the collapsed dock pill, and the status bar. Out of scope (ignore from the reference): the right-side Sheet, the chat panel, fullscreen, mentions, provider/reasoning selectors.**
 
-**Placement rule — the DOCK exists ONLY in the Studio.** Home has NO floating dock: Home renders the **hero composer** — the same input-bar component, inline and centered under the greeting (Higgsfield style), always expanded, no pill/minimize/status-bar behavior. Floating pill + status bar + expand/collapse = Studio only.
+**Placement rule — the DOCK exists ONLY in the Studio.** Home has NO floating dock: Home renders the **hero composer** — the same input-bar component, inline and centered under the greeting, always expanded, no pill/minimize/status-bar behavior. Floating pill + status bar + expand/collapse = Studio only.
 
 **Shell** — `fixed inset-x-0 bottom-0 z-40 flex flex-col items-center px-4 pb-4`, outer `pointer-events-none`, inner `pointer-events-auto w-full max-w-2xl`. Mount/unmount: `opacity 0→1, y 8→0`, 220ms `cubic-bezier(0.32,0.72,0,1)`. Dock⇄Input swap: crossfade 200ms ease-out inside a `layout` container (350ms `cubic-bezier(0.16,1,0.3,1)`). Uses `motion/react` (`AnimatePresence mode='wait'`) — the right tool here per emil (interruptible mount/unmount choreography).
 
@@ -197,7 +197,7 @@ Example commands it must handle:
 | Player area | `@remotion/player` inside `card`/`aspect-ratio`; `slider` for scrub if needed |
 | Timeline strip | `scroll-area` (horizontal), `card` per scene, `badge` (scene status), `context-menu` (scene actions), `alert-dialog` (delete scene), dnd via native drag or `@dnd-kit` (only new dep, add if needed) |
 | History panel | `sheet` (or fixed column) + `scroll-area`, `item`/`card` rows, `badge` (rendered/failed), `separator` |
-| Agent dock (collapsed) | AI Elements `prompt-input` (PromptInput, PromptInputTextarea, PromptInputSubmit) inside a floating `card` — Knock-style rounded pill |
+| Agent dock (collapsed) | AI Elements `prompt-input` (PromptInput, PromptInputTextarea, PromptInputSubmit) inside a floating `card` — rounded pill |
 | Agent dock (expanded) | AI Elements `conversation`, `message`, `response`, `tool` (tool-call cards), `confirmation`/tool-approval card, `loader`, `suggestion` (chips: "Regenerate scene…", "Swap scenes…", "Render") |
 | Generation progress | `progress` + `badge` on scene cards; `sileo` toasts (via `libs/toast`) for terminal events (scene ready/failed) |
 | Storyboard page | `card` grid (keyframe, prompt excerpt), `dialog` for scene detail/edit, `textarea`, `field` for forms |
