@@ -172,6 +172,11 @@ export const videoGenerationWorkflow = Workflow<VideoGenerationWorkflowParams>(
 // comment).
 export const projectEventsNamespace = DurableObjectNamespace("project-events", {
 	className: "ProjectEventsDO",
+	// Cloudflare no longer allows KV-backed DO namespaces on new accounts —
+	// they must be SQLite-backed (`new_sqlite_classes`). ProjectEventsDO holds
+	// no persisted state (in-memory SSE writer set), so SQLite storage is unused
+	// but required by the platform.
+	sqlite: true,
 });
 
 // Shared ffmpeg media-ops Container (docs/media-ops-container.md §3): a
