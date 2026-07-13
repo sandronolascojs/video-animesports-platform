@@ -449,10 +449,12 @@ async function reencodeAudioScene(
  * | `color: style.color ?? "#ffffff"`                          | `ctx.fillStyle`                                              |
  * | `backgroundColor` + `borderRadius: 10` + `padding: "0.35em 0.7em"` (only when set) | rounded rect (`traceRoundedRectPath`) sized to the wrapped text block + `0.35×/0.7×fontSizePx` padding, radius `10 * scaleRatio` |
  * | `padding: "5% 6%"` on the AbsoluteFill (CSS resolves padding-top/bottom against WIDTH, not height — CSS2.1 §8.4) | both safe margins computed as `videoWidth * 0.05` / `videoWidth * 0.06` |
- * | `maxWidth: "90%"` of the post-padding content box          | `(videoWidth - 2*horizontalMargin) * 0.9`                    |
+ * | `maxWidth: "N%"` of the post-padding content box, `style.maxWidthPercent ?? 90` | `(videoWidth - 2*horizontalMargin) * (maxWidthPercent / 100)` |
  * | `justifyContent`: top→`flex-start`, else→`flex-end`        | `boxTop = margin` or `videoHeight - margin - boxHeight`       |
  * | `alignItems: "center"` (horizontal, column-direction AbsoluteFill) | `centerX = videoWidth / 2`                                    |
- * | `textAlign: "center"`, implicit browser line-wrap          | `ctx.textAlign = "center"`; `measureText`-loop word-wrap, `lineHeight = fontSizePx * 1.2` |
+ * | `textAlign: "center"`, implicit browser line-wrap          | `ctx.textAlign = "center"`; `measureText`-loop word-wrap, `lineHeight = fontSizePx * (style.lineHeight ?? 1.2)` |
+ * | `lineHeight: style.lineHeight ?? 1.2`                       | same multiplier, folded into the `lineHeight` row above       |
+ * | `textShadow` (off unless `style.textShadow`), blur/opacity from `textShadowIntensity` via `textShadowIntensityToPixels` | `ctx.shadowColor`/`shadowBlur` (scaled) around the outer (stroke, or fill if no stroke) pass only, cleared right after — see `drawSubtitle`'s own comment |
  */
 async function buildVideoPipeline(
 	probed: ProbedScene[],

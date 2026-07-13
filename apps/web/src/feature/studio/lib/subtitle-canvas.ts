@@ -48,8 +48,32 @@ const DEFAULT_OUTLINE_COLOR = "#000000";
 const OUTLINE_WIDTH_REFERENCE_PX = 2;
 /** Mirrors the overlay's `borderRadius: 10` (applied only when a background color is set). */
 const BACKGROUND_RADIUS_REFERENCE_PX = 10;
-/** CSS `line-height: normal`'s usual ~1.2× multiplier — the overlay never sets an explicit line-height, so this is the standard approximation for browser default line boxes. */
+/** CSS `line-height: normal`'s usual ~1.2× multiplier — the overlay's own default when `style.lineHeight` is unset. */
 const LINE_HEIGHT_MULTIPLIER = 1.2;
+/** The overlay's original hardcoded `maxWidth: "90%"` — default when `style.maxWidthPercent` is unset. */
+const DEFAULT_MAX_WIDTH_PERCENT = 90;
+/** Default `style.textShadowIntensity` when `textShadow` is on but no intensity was ever set. */
+const DEFAULT_TEXT_SHADOW_INTENSITY = 50;
+
+/**
+ * Maps the `textShadowIntensity` 0-100 dial to a blur radius + opacity pair —
+ * the ONE curve both the DOM overlay (`composition.tsx`'s `SubtitleOverlay`,
+ * via CSS `text-shadow`) and `drawSubtitle` below (via canvas `shadowBlur`)
+ * derive their shadow from, so the Player preview and the export burn-in
+ * never drift apart. Pure, no canvas/DOM dependency, in this file only
+ * because `SubtitleOverlay` already imports `STUDIO_BACKDROP_COLOR` from
+ * here — same "one place" rationale.
+ */
+export function textShadowIntensityToPixels(intensity: number): {
+	blurPx: number;
+	opacity: number;
+} {
+	const clamped = Math.min(100, Math.max(0, intensity));
+	return {
+		blurPx: 4 + (clamped / 100) * 16,
+		opacity: 0.35 + (clamped / 100) * 0.45,
+	};
+}
 
 type Canvas2DContext =
 	| CanvasRenderingContext2D
@@ -164,8 +188,9 @@ export function drawSubtitle(
 	const verticalSafeMargin = videoWidth * 0.05;
 	const horizontalSafeMargin = videoWidth * 0.06;
 	const contentBoxWidth = videoWidth - horizontalSafeMargin * 2;
-	// `maxWidth: "90%"` on the text div, relative to that post-padding content box.
-	const maxTextWidth = contentBoxWidth * 0.9;
+	// `maxWidth: "N%"` on the text div, relative to that post-padding content box.
+	const maxWidthPercent = style.maxWidthPercent ?? DEFAULT_MAX_WIDTH_PERCENT;
+	const maxTextWidth = contentBoxWidth * (maxWidthPercent / 100);
 
 	ctx.font = `${fontWeight} ${fontSizePx}px ${fontFamily}, sans-serif`;
 	ctx.textAlign = "center";
@@ -180,7 +205,7 @@ export function drawSubtitle(
 	const ascent = sampleMetrics.fontBoundingBoxAscent ?? fontSizePx * 0.8;
 	const descent = sampleMetrics.fontBoundingBoxDescent ?? fontSizePx * 0.2;
 	const glyphBoxHeight = ascent + descent;
-	const lineHeight = fontSizePx * LINE_HEIGHT_MULTIPLIER;
+	const lineHeight = fontSizePx * (style.lineHeight ?? LINE_HEIGHT_MULTIPLIER);
 
 	const textBlockWidth = Math.max(
 		...lines.map((line) => ctx.measureText(line).width),
@@ -225,13 +250,61 @@ export function drawSubtitle(
 	ctx.lineJoin = "round";
 	ctx.fillStyle = textColor;
 
+	// CSS `text-shadow` renders ONE blurred silhouette behind the whole glyph
+	// run (stroke + fill together, per `paintOrder`), then paints stroke/fill
+	// crisply on top. `ctx.shadow*` has no such per-property scoping, so per
+	// LINE it's applied only around the (wider, outer) pass that actually
+	// paints that line's outer edge — the stroke pass when there is one,
+	// otherwise the fill pass — and cleared immediately after, every line
+	// (not just once before the loop — each line needs its own shadow since
+	// `ctx.shadow*` isn't retroactive). Clearing it right after every line's
+	// outer pass (rather than once at the very end) means the shadow state is
+	// ALWAYS back to zero by the time this function returns, even though it
+	// returns from inside the loop's last iteration — so it never leaks onto
+	// a LATER, unrelated draw call against this same reused `ctx` (e.g. the
+	// next exported frame's backdrop `fillRect` in export.ts, which would
+	// otherwise inherit a soft halo).
+	const shadowEnabled = Boolean(style.textShadow);
+	const { blurPx: shadowBlurPx, opacity: shadowOpacity } =
+		textShadowIntensityToPixels(
+			style.textShadowIntensity ?? DEFAULT_TEXT_SHADOW_INTENSITY,
+		);
+
+	function applyShadow() {
+		ctx.shadowColor = `rgba(0, 0, 0, ${shadowOpacity})`;
+		ctx.shadowBlur = shadowBlurPx * scaleRatio;
+		ctx.shadowOffsetY = 2 * scaleRatio;
+		ctx.shadowOffsetX = 0;
+	}
+
+	function clearShadow() {
+		ctx.shadowBlur = 0;
+		ctx.shadowColor = "rgba(0, 0, 0, 0)";
+		ctx.shadowOffsetY = 0;
+	}
+
 	const firstLineTop = boxTop + blockPaddingV;
+	const hasOutline = outlineWidthPx > 0;
 	lines.forEach((line, index) => {
 		const lineTop = firstLineTop + index * lineHeight;
 		const baselineY = lineTop + (lineHeight - glyphBoxHeight) / 2 + ascent;
-		if (outlineWidthPx > 0) {
+		if (hasOutline) {
+			if (shadowEnabled) {
+				applyShadow();
+			}
 			ctx.strokeText(line, centerX, baselineY);
+			if (shadowEnabled) {
+				clearShadow();
+			}
+			ctx.fillText(line, centerX, baselineY);
+		} else {
+			if (shadowEnabled) {
+				applyShadow();
+			}
+			ctx.fillText(line, centerX, baselineY);
+			if (shadowEnabled) {
+				clearShadow();
+			}
 		}
-		ctx.fillText(line, centerX, baselineY);
 	});
 }

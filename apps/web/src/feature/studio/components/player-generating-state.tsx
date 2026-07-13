@@ -6,28 +6,47 @@ import { RotateCcwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PresetPattern } from "@/components/ui/smoothui/grid-loader";
 import { GridLoader } from "@/components/ui/smoothui/grid-loader";
+import { WordRotate } from "@/components/ui/word-rotate";
 import { useRetryScene } from "@/feature/studio/hooks/http/use-scenes";
-import { describeFirstRunStatus } from "@/feature/studio/lib/first-run";
+import {
+	describeFirstRunStatus,
+	type FirstRunPhase,
+	getFirstRunPhase,
+} from "@/feature/studio/lib/first-run";
 import { useStudio } from "@/feature/studio/stores/use-studio";
 import { toast } from "@/libs/toast";
 
-// A tasteful "actively generating" cycle for the hero GridLoader: ripple
-// gathering to center, a full plus, a hollow frame, an X — reads as
-// continuous generative motion rather than a repeating spinner.
-const GENERATING_SEQUENCE: PresetPattern[] = [
+// GridLoader sequence per generation phase (issue #3, docs/studio-fixes-
+// backlog.md §3): a thinking/generating/rendering-style mapping so the mark
+// morphs as the REAL phase advances (`getFirstRunPhase`) instead of looping
+// decoratively. One entry per `FirstRunPhase` — never invent a bucket here
+// that phase doesn't have.
+const PLANNING_SEQUENCE: PresetPattern[] = [
+	"breathing",
+	"ripple-in",
+	"solo-center",
+	"ripple-in",
+];
+
+const KEYFRAME_SEQUENCE: PresetPattern[] = [
 	"ripple-in",
 	"plus-full",
 	"frame",
 	"x-shape",
 ];
 
-// The composed "card-of-one" plate (docs/studio-design-language.md §3b): the
-// shared glass-composer material, rounded to the doc's card ceiling
-// (`rounded-2xl`), sized like the Empty primitive's own `max-w-sm` so both
-// the generating and failure moments read as one deliberate treatment inside
-// the player well — never filling the canvas.
-const PLATE_CLASSNAME =
-	"glass-composer flex w-full max-w-sm flex-col items-center gap-5 rounded-2xl px-8 py-9 text-center";
+const RENDERING_SEQUENCE: PresetPattern[] = [
+	"wave-lr",
+	"wave-rl",
+	"spiral-cw",
+	"snake",
+];
+
+const PHASE_SEQUENCE: Record<FirstRunPhase, PresetPattern[]> = {
+	keyframes: KEYFRAME_SEQUENCE,
+	planning: PLANNING_SEQUENCE,
+	rendering: RENDERING_SEQUENCE,
+};
 
 export type PlayerGeneratingStateProps = {
 	/** Whether the first generation ended in `failed` before any scene ever landed. */
@@ -42,12 +61,22 @@ export type PlayerGeneratingStateProps = {
  * the chat, and navigation stay fully interactive; the moment the first scene
  * lands (`video_ready`) `player-canvas.tsx` swaps this out for the real
  * `Player` (ready clips + per-scene placeholders) so the owner watches the
- * first clip play while the rest keep filling in. `player-canvas.tsx` owns
- * the WHETHER (via `isFirstGeneration`/`isFirstGenerationFailure`); this owns
- * only the WHAT. Both branches render inside the shared `glass-composer`
- * plate (§3b) so the loader/status or the error/Retry read as one composed
- * moment rather than floating bare on the black canvas.
- * `prefers-reduced-motion` is honored by `GridLoader` itself.
+ * first clip play while the rest keep filling in.
+ *
+ * `player-canvas.tsx` owns the WHETHER and the full-bleed `glass-composer`
+ * surface itself (issue #2); this component renders only the centered
+ * content directly on that glass — no nested card/plate, so generating and
+ * failure both read as the player itself, not a box inside a box.
+ *
+ * The loader (issue #3): ONE `GridLoader` whose pattern sequence is picked by
+ * the live phase (`getFirstRunPhase`) and remounted (`key={phase}`) on every
+ * phase change so the mark and the `WordRotate` label switch together — a
+ * thinking/generating/rendering-style cycle tied to the REAL phase, never a
+ * decorative loop disconnected from it. The label itself is driven straight
+ * off `describeFirstRunStatus`'s live string: `WordRotate` crossfades
+ * whenever that string changes (a new scene starts rendering, a new phase
+ * begins) and holds otherwise — no faked progress.
+ * `prefers-reduced-motion` is honored by both `GridLoader` and `WordRotate`.
  */
 export function PlayerGeneratingState({
 	isFailed,
@@ -62,8 +91,11 @@ export function PlayerGeneratingState({
 		);
 
 		return (
-			<div className={PLATE_CLASSNAME} role="alert">
-				<p className="text-balance text-foreground text-sm">
+			<div
+				className="flex flex-col items-center gap-5 px-8 py-9 text-center"
+				role="alert"
+			>
+				<p className="max-w-sm text-balance text-foreground text-sm">
 					{project.failReason ?? "Generation failed before any scene finished."}
 				</p>
 				<Button
@@ -97,11 +129,17 @@ export function PlayerGeneratingState({
 		);
 	}
 
+	const phase = getFirstRunPhase(project, scenes);
+
 	return (
-		<div className={PLATE_CLASSNAME} role="status">
+		<div
+			className="flex flex-col items-center gap-5 px-8 py-9 text-center"
+			role="status"
+		>
 			<GridLoader
+				key={phase}
 				mode="sequence"
-				sequence={GENERATING_SEQUENCE}
+				sequence={PHASE_SEQUENCE[phase]}
 				color="amber"
 				size={72}
 				blur={2}
@@ -110,9 +148,9 @@ export function PlayerGeneratingState({
 			/>
 			<div className="flex flex-col gap-1.5">
 				<p className="font-medium text-foreground text-sm">
-					{describeFirstRunStatus(project, scenes)}
+					<WordRotate words={[describeFirstRunStatus(project, scenes)]} />
 				</p>
-				<p className="text-muted-foreground text-xs">
+				<p className="max-w-sm text-muted-foreground text-xs">
 					Watch your episode come together in the timeline below.
 				</p>
 			</div>

@@ -7,10 +7,9 @@ import type {
 } from "@video-platform-challenge/api";
 import { SceneStatus } from "@video-platform-challenge/types";
 import type { CSSProperties } from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
 	AbsoluteFill,
-	interpolate,
 	OffthreadVideo,
 	Sequence,
 	useCurrentFrame,
@@ -18,7 +17,10 @@ import {
 } from "remotion";
 
 import { useAssetUrl } from "@/feature/studio/hooks/http/use-asset-url";
-import { STUDIO_BACKDROP_COLOR } from "@/feature/studio/lib/subtitle-canvas";
+import {
+	STUDIO_BACKDROP_COLOR,
+	textShadowIntensityToPixels,
+} from "@/feature/studio/lib/subtitle-canvas";
 import { STUDIO_FPS } from "@/feature/studio/lib/time";
 
 /**
@@ -92,12 +94,19 @@ export function gradientForScene(sceneId: string): [string, string] {
 /**
  * Data-driven Studio composition (docs/studio-ui.md §1 "Center"): one
  * `<Sequence>` per draft-timeline entry. A scene with a ready video asset
- * plays it via `OffthreadVideo` (signed URL from `assets.getDownloadUrl`,
- * fetched per-scene — all Sequences mount concurrently in Remotion, so this
- * naturally batches into parallel queries per docs' "fetch URLs in parallel"
- * note); every other status renders the gradient + title placeholder, plus a
+ * plays it via `OffthreadVideo` (signed URL from `assets.getDownloadUrl`);
+ * every other status renders the gradient + title placeholder, plus a
  * subtitle overlay live-styled from `subtitleStyle` so the Subtitles tab
  * previews in real time on the Player.
+ *
+ * Player fidelity (docs/studio-quality-pass.md §4): the render just
+ * concatenates clips with hard cuts, so the preview must match exactly — no
+ * per-scene fade (see `SceneLayer`). To avoid a load gap when playback/
+ * scrubbing crosses into a scene whose `<Sequence>` hasn't mounted yet, every
+ * scene's signed video URL is prefetched up front via `ScenePreload` below,
+ * unconditionally of the current playhead — `SceneLayer`'s own `useAssetUrl`
+ * call for the same asset id then resolves from the TanStack Query cache
+ * instead of waiting on a network round trip.
  */
 export function StudioComposition({
 	timeline,
@@ -125,15 +134,33 @@ export function StudioComposition({
 				from={from}
 				durationInFrames={durationInFrames}
 			>
-				<SceneLayer scene={scene} durationInFrames={durationInFrames} />
+				<SceneLayer scene={scene} />
 			</Sequence>
 		);
 	});
+
+	// Deduped so a scene that (in principle) appeared more than once in the
+	// timeline only primes its query cache entry once.
+	const preloadScenes = useMemo(() => {
+		const seen = new Set<string>();
+		const scenes: Scene[] = [];
+		for (const entry of timeline) {
+			const scene = scenesById[entry.sceneId];
+			if (scene && !seen.has(scene.id)) {
+				seen.add(scene.id);
+				scenes.push(scene);
+			}
+		}
+		return scenes;
+	}, [timeline, scenesById]);
 
 	const activeScene = findActiveScene(timeline, scenesById, frame, fps);
 
 	return (
 		<AbsoluteFill style={{ backgroundColor: STUDIO_BACKDROP_COLOR }}>
+			{preloadScenes.map((scene) => (
+				<ScenePreload key={scene.id} scene={scene} />
+			))}
 			{sequences}
 			<SubtitleOverlay
 				style={subtitleStyle}
@@ -143,13 +170,21 @@ export function StudioComposition({
 	);
 }
 
-function ScenePlaceholder({
-	scene,
-	opacity,
-}: {
-	scene: Scene;
-	opacity: number;
-}) {
+/**
+ * Renders nothing — exists purely to call `useAssetUrl` for a scene outside
+ * of its `<Sequence>`'s mount lifecycle (see `StudioComposition` doc comment
+ * above). Split into its own component (rather than called inline in a
+ * `.map()`) because the timeline can reorder (drag-and-drop), which would
+ * otherwise violate the Rules of Hooks.
+ */
+function ScenePreload({ scene }: { scene: Scene }) {
+	const hasVideo =
+		scene.status === SceneStatus.VIDEO_READY && Boolean(scene.videoAssetId);
+	useAssetUrl(hasVideo ? scene.videoAssetId : null);
+	return null;
+}
+
+function ScenePlaceholder({ scene }: { scene: Scene }) {
 	const [from, to] = gradientForScene(scene.id);
 
 	return (
@@ -158,7 +193,6 @@ function ScenePlaceholder({
 				alignItems: "center",
 				backgroundImage: `linear-gradient(135deg, ${from}, ${to})`,
 				justifyContent: "center",
-				opacity,
 			}}
 		>
 			<div
@@ -178,26 +212,13 @@ function ScenePlaceholder({
 	);
 }
 
-function SceneLayer({
-	scene,
-	durationInFrames,
-}: {
-	scene: Scene;
-	durationInFrames: number;
-}) {
-	const frame = useCurrentFrame();
-	const fadeFrames =
-		durationInFrames > 8 ? Math.min(8, Math.floor(durationInFrames / 4)) : 0;
-	const opacity =
-		fadeFrames > 0
-			? interpolate(
-					frame,
-					[0, fadeFrames, durationInFrames - fadeFrames, durationInFrames],
-					[0, 1, 1, 0],
-					{ extrapolateLeft: "clamp", extrapolateRight: "clamp" },
-				)
-			: 1;
-
+/**
+ * Faithful to the render (docs/studio-quality-pass.md §4): the Mediabunny
+ * render just concatenates clips with hard cuts, so the preview must too — no
+ * opacity fade at scene edges. `pauseWhenBuffering` (kept) + the up-front
+ * `ScenePreload` cache-priming above are what keep playback gap-free instead.
+ */
+function SceneLayer({ scene }: { scene: Scene }) {
 	const [videoErrored, setVideoErrored] = useState(false);
 	const hasVideo =
 		scene.status === SceneStatus.VIDEO_READY && Boolean(scene.videoAssetId);
@@ -205,7 +226,7 @@ function SceneLayer({
 
 	if (hasVideo && videoUrl && !videoErrored) {
 		return (
-			<AbsoluteFill style={{ opacity }}>
+			<AbsoluteFill>
 				<OffthreadVideo
 					src={videoUrl.url}
 					pauseWhenBuffering
@@ -216,7 +237,7 @@ function SceneLayer({
 		);
 	}
 
-	return <ScenePlaceholder scene={scene} opacity={opacity} />;
+	return <ScenePlaceholder scene={scene} />;
 }
 
 function SubtitleOverlay({
@@ -236,6 +257,9 @@ function SubtitleOverlay({
 		justifyContent: style.position === "top" ? "flex-start" : "flex-end",
 		padding: "5% 6%",
 	};
+	const { blurPx, opacity } = textShadowIntensityToPixels(
+		style.textShadowIntensity ?? 50,
+	);
 	const textStyle: CSSProperties = {
 		WebkitTextStroke: `2px ${style.outlineColor ?? "#000000"}`,
 		backgroundColor: style.backgroundColor ?? "transparent",
@@ -245,10 +269,14 @@ function SubtitleOverlay({
 		fontSize: style.fontSize ?? 48,
 		fontWeight:
 			style.weight === "bold" ? 700 : style.weight === "medium" ? 600 : 400,
-		maxWidth: "90%",
+		lineHeight: style.lineHeight ?? 1.2,
+		maxWidth: `${style.maxWidthPercent ?? 90}%`,
 		padding: style.backgroundColor ? "0.35em 0.7em" : 0,
 		paintOrder: "stroke fill",
 		textAlign: "center",
+		textShadow: style.textShadow
+			? `0 2px ${blurPx}px rgba(0, 0, 0, ${opacity})`
+			: "none",
 	};
 
 	return (

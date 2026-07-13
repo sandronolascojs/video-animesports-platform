@@ -49,6 +49,11 @@ function Slider({
 				<SliderPrimitive.Thumb
 					data-slot="slider-thumb"
 					key={index}
+					// Radix reads `aria-label` off each `Thumb` itself (the actual
+					// `role="slider"` element) — a label on `Root` above is never
+					// announced. `Root`'s own `aria-label` (spread via `...props`)
+					// still wins if the consumer passed one explicitly there instead.
+					aria-label={props["aria-label"]}
 					className="relative block size-3 shrink-0 select-none rounded-full border border-ring bg-white ring-ring/50 transition-[color,box-shadow] after:absolute after:-inset-2 hover:ring-3 focus-visible:outline-hidden focus-visible:ring-3 active:ring-3 disabled:pointer-events-none disabled:opacity-50"
 				/>
 			))}

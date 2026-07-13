@@ -14,7 +14,6 @@ function makeEntry(sceneId: string, durationSeconds: number): TimelineEntry {
 
 function makeScene(id: string, overrides: Partial<Scene> = {}): Scene {
 	return {
-		audioAssetId: null,
 		createdAt: new Date(),
 		dialogue: null,
 		durationSeconds: 5,

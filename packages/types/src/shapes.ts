@@ -20,6 +20,10 @@ export type SubtitleStyle = {
 	outlineColor?: string;
 	backgroundColor?: string;
 	position?: string;
+	lineHeight?: number;
+	maxWidthPercent?: number;
+	textShadow?: boolean;
+	textShadowIntensity?: number;
 };
 
 export type ProjectPlanCharacter = {

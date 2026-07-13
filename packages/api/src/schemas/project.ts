@@ -28,6 +28,14 @@ export const subtitleLanguageSchema = z.enum([
  * Structurally mirrors packages/types `SubtitleStyle` exactly. Declared
  * ONCE here and reused by `updateSubtitleStyle`'s input AND the project
  * output — never redeclared.
+ *
+ * `lineHeight`/`maxWidthPercent`/`textShadow`/`textShadowIntensity` (studio
+ * quality pass §3, controls-only — no per-cue timing) extend the original
+ * size/weight/color/outline/background/position set. Both `composition.tsx`'s
+ * `SubtitleOverlay` (live Player) and `subtitle-canvas.ts`'s `drawSubtitle`
+ * (export burn-in) fall back to their previous hardcoded values when these
+ * are unset, so existing projects (and the `null` `subtitleStyle` default)
+ * render byte-identical to before this change.
  */
 export const subtitleStyleSchema = z.object({
 	font: z.string().optional(),
@@ -37,6 +45,14 @@ export const subtitleStyleSchema = z.object({
 	outlineColor: z.string().optional(),
 	backgroundColor: z.string().optional(),
 	position: z.string().optional(),
+	/** Multiplier over `fontSize`, e.g. `1.2` — mirrors CSS `line-height`'s unitless form. */
+	lineHeight: z.number().positive().optional(),
+	/** Percent (1-100) of the safe content box — mirrors the overlay's `maxWidth: "N%"`. */
+	maxWidthPercent: z.number().min(1).max(100).optional(),
+	/** Drop-shadow toggle, independent of the always-on outline stroke. */
+	textShadow: z.boolean().optional(),
+	/** Percent (0-100) driving the shadow's blur radius + opacity when `textShadow` is on. */
+	textShadowIntensity: z.number().min(0).max(100).optional(),
 });
 
 // The user's main story description — the core creation input (docs §1).
