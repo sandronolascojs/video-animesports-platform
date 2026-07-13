@@ -112,6 +112,10 @@ export const projectEventsNamespace = DurableObjectNamespace("project-events", {
 
 export const bucket = await R2Bucket("video-storage", {
 	name: bucketName,
+	// Adopt the bucket if it already exists (a prior local dev run creates it —
+	// `dev.remote: true` writes to the REAL bucket). Without this, the first CI
+	// deploy against a fresh state store tries to CREATE it and 409s.
+	adopt: true,
 	devDomain: false,
 	dev: { remote: true },
 	cors: [
