@@ -5,7 +5,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { Scene, TimelineEntry } from "@video-platform-challenge/api";
 import { SceneStatus } from "@video-platform-challenge/types";
 
-import { useAssetUrl } from "@/feature/studio/hooks/http/use-asset-url";
+import { useAssetUrl } from "@/feature/studio/hooks/http/use-project-asset-urls";
 import { cn } from "@/libs/utils";
 
 export type TimelineClipProps = {

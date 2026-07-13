@@ -177,3 +177,34 @@ export function useExtendProject(projectId: string) {
 		}),
 	);
 }
+
+/**
+ * "Retry" (Studio topbar): re-kicks the resume-aware generation workflow for a
+ * failed/stuck project — it reuses the existing plan and skips already-ready
+ * assets, so this just flips the project back to `generating` and invalidates
+ * `projects.get` to pick up the new status and any regenerated assets as
+ * polling resumes. `CONFLICT` (already generating) and `RATE_LIMITED` get
+ * friendlier copy; the topbar also hides the button unless the project is
+ * actually retryable, so these are the race-condition fallback.
+ */
+export function useRetryProject(projectId: string) {
+	const queryClient = useQueryClient();
+
+	return useMutation(
+		orpc.projects.retry.mutationOptions({
+			onError: (error) => {
+				toastMutationError(error, {
+					codeMessages: {
+						CONFLICT: "This project is already generating.",
+						RATE_LIMITED:
+							"You've hit the hourly generation limit. Try again in a bit.",
+					},
+					title: "Couldn't retry generation",
+				});
+			},
+			onSuccess: () => {
+				queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId) });
+			},
+		}),
+	);
+}

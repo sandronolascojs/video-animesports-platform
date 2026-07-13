@@ -37,33 +37,40 @@ import type { DialogPayloads } from "@/libs/dialogs/registry";
 import { useDialog } from "@/libs/dialogs/use-dialog";
 import { toast } from "@/libs/toast";
 
-// `id` is supplied separately (from `payload.scene.id`), never a form field —
-// everything else mirrors `updateSceneInputSchema` exactly (studio quality
-// pass §2b: "reuse the shared zod scene schema for validation"), so this
-// dialog's constraints can never drift from what the server actually
-// accepts.
-const editSceneFormSchema = updateSceneInputSchema.omit({ id: true });
+// `id` is supplied separately (from `payload.scene.id`), never a form field.
+// `dialogue` (the locked, already-baked spoken line) is dropped from this
+// form entirely (studio quality pass — compressed edit dialog): the only
+// field a user can meaningfully act on for the caption is `subtitleText`,
+// so the form exposes ONE "Dialogue" field that edits it. Everything else
+// mirrors `updateSceneInputSchema` exactly, so the remaining constraints
+// can never drift from what the server actually accepts.
+const editSceneFormSchema = updateSceneInputSchema.omit({
+	id: true,
+	dialogue: true,
+});
 type EditSceneFormValues = z.infer<typeof editSceneFormSchema>;
 
 /**
- * Studio quality pass §2b: the scene row's ONLY editor now — replaces the
- * old inline prompt/dialogue/subtitle expand that used to open under a
- * selected `video_ready` row in `scenes-panel.tsx`. `title` is shown as the
+ * Studio quality pass: the scene row's ONLY editor. `title` is shown as the
  * dialog title, NOT a form field: `draft-store.ts`'s own doc comment is
  * explicit that `title` is agent-assigned and deliberately excluded from
  * `updateSceneInputSchema` — this dialog respects that instead of silently
  * growing the contract to make it editable.
  *
- * `dialogue`/`durationSeconds` are disabled once the scene reaches
- * `video_ready` — mirrors `scenesContract.update`'s own doc comment
+ * Compressed to 3 fields — Prompt, Dialogue, Duration. The old locked
+ * spoken-`dialogue` textarea is gone; "Dialogue" here is `subtitleText`
+ * (the on-screen caption, burned in at export) since that's the only piece
+ * of dialogue a user can actually change post-generation.
+ *
+ * `durationSeconds` is disabled once the scene reaches `video_ready` —
+ * mirrors `scenesContract.update`'s own doc comment
  * (packages/api/src/contracts/scenes.ts) and `isLockedSceneFieldEdit`
  * (apps/server/src/lib/scene-update-guard.ts): the clip's audio is already
- * baked in from that exact dialogue/duration pair, so editing either here
- * would just round-trip into a CONFLICT toast. Locked fields are omitted
- * from the save payload entirely (not merely left unchanged) — SENDING them
- * at all is what trips the guard, regardless of value. `prompt` and
- * `subtitleText` stay editable at every status (the guard never locks
- * them).
+ * baked in at that exact duration, so editing it here would just
+ * round-trip into a CONFLICT toast. The locked field is omitted from the
+ * save payload entirely (not merely left unchanged) — SENDING it at all is
+ * what trips the guard, regardless of value. `prompt` and `subtitleText`
+ * stay editable at every status (the guard never locks them).
  */
 export function EditSceneDialog({
 	payload,
@@ -79,7 +86,6 @@ export function EditSceneDialog({
 		useForm<EditSceneFormValues>({
 			resolver: zodResolver(editSceneFormSchema),
 			defaultValues: {
-				dialogue: scene.dialogue ?? "",
 				durationSeconds: scene.durationSeconds,
 				prompt: scene.prompt,
 				subtitleText: scene.subtitleText ?? "",
@@ -92,12 +98,7 @@ export function EditSceneDialog({
 			id: scene.id,
 			prompt: values.prompt,
 			subtitleText: values.subtitleText,
-			...(isLocked
-				? {}
-				: {
-						dialogue: values.dialogue,
-						durationSeconds: values.durationSeconds,
-					}),
+			...(isLocked ? {} : { durationSeconds: values.durationSeconds }),
 		};
 		updateScene.mutate(patch, {
 			onSuccess: (updated) => {
@@ -122,150 +123,124 @@ export function EditSceneDialog({
 
 	return (
 		<Dialog open onOpenChange={(open) => !open && close()}>
-			<DialogContent className="sm:max-w-lg">
+			<DialogContent className="sm:max-w-md">
 				<DialogHeader>
 					<DialogTitle>{scene.title ?? "Untitled scene"}</DialogTitle>
 					<DialogDescription>
-						Edit this scene's prompt, dialogue, subtitle, and duration.
+						Edit this scene's prompt, dialogue, and duration.
 					</DialogDescription>
 				</DialogHeader>
 
-				<form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
-					<Controller
-						control={control}
-						name="prompt"
-						render={({ field, fieldState }) => (
-							<Field data-invalid={fieldState.invalid}>
-								<FieldLabel htmlFor="edit-scene-prompt">Prompt</FieldLabel>
-								<Textarea
-									{...field}
-									id="edit-scene-prompt"
-									className="min-h-28"
-									aria-invalid={fieldState.invalid}
-								/>
-								<FieldDescription>
-									What happens in this scene — feeds a future retry, never
-									changes the already-generated clip.
-								</FieldDescription>
-								{fieldState.invalid && (
-									<FieldError errors={[fieldState.error]} />
-								)}
-							</Field>
-						)}
-					/>
-
-					<Controller
-						control={control}
-						name="dialogue"
-						render={({ field, fieldState }) => (
-							<Field data-invalid={fieldState.invalid}>
-								<FieldLabel htmlFor="edit-scene-dialogue">Dialogue</FieldLabel>
-								<Textarea
-									{...field}
-									id="edit-scene-dialogue"
-									className="min-h-20"
-									disabled={isLocked}
-									aria-invalid={fieldState.invalid}
-								/>
-								{isLocked ? (
-									<FieldDescription>
-										Locked — this scene's video already has this dialogue baked
-										into its audio. Retry the scene to change it.
-									</FieldDescription>
-								) : (
-									<FieldDescription>
-										Spoken line — voiced natively in the generated clip.
-									</FieldDescription>
-								)}
-								{fieldState.invalid && (
-									<FieldError errors={[fieldState.error]} />
-								)}
-							</Field>
-						)}
-					/>
-
-					<Controller
-						control={control}
-						name="subtitleText"
-						render={({ field, fieldState }) => (
-							<Field data-invalid={fieldState.invalid}>
-								<FieldLabel htmlFor="edit-scene-subtitle">Subtitle</FieldLabel>
-								<Textarea
-									{...field}
-									id="edit-scene-subtitle"
-									className="min-h-20"
-									aria-invalid={fieldState.invalid}
-								/>
-								<FieldDescription>
-									Burned in at export time — safe to edit at any status.
-								</FieldDescription>
-								{fieldState.invalid && (
-									<FieldError errors={[fieldState.error]} />
-								)}
-							</Field>
-						)}
-					/>
-
-					<Field>
-						<FieldLabel htmlFor="edit-scene-duration">Duration</FieldLabel>
-						<div className="flex items-center gap-2">
-							<Button
-								type="button"
-								variant="outline"
-								size="icon-sm"
-								disabled={
-									isLocked || durationSeconds <= MIN_SCENE_DURATION_SECONDS
-								}
-								onClick={() => adjustDuration(-1)}
-							>
-								<MinusIcon className="size-3.5" />
-								<span className="sr-only">Decrease duration</span>
-							</Button>
-							<Controller
-								control={control}
-								name="durationSeconds"
-								render={({ field }) => (
-									<Input
-										id="edit-scene-duration"
-										type="number"
-										min={MIN_SCENE_DURATION_SECONDS}
-										max={MAX_SCENE_DURATION_SECONDS}
-										disabled={isLocked}
-										className="w-20 text-center"
-										value={field.value ?? scene.durationSeconds}
-										onChange={(event) => {
-											const parsed = Number(event.target.value);
-											if (Number.isFinite(parsed)) {
-												field.onChange(parsed);
-											}
-										}}
+				<form onSubmit={onSubmit} className="flex flex-col gap-3" noValidate>
+					<div className="flex max-h-[70vh] flex-col gap-3 overflow-y-auto py-0.5">
+						<Controller
+							control={control}
+							name="prompt"
+							render={({ field, fieldState }) => (
+								<Field data-invalid={fieldState.invalid}>
+									<FieldLabel htmlFor="edit-scene-prompt">Prompt</FieldLabel>
+									<Textarea
+										{...field}
+										id="edit-scene-prompt"
+										rows={5}
+										className="min-h-0 resize-y"
+										aria-invalid={fieldState.invalid}
 									/>
-								)}
-							/>
-							<Button
-								type="button"
-								variant="outline"
-								size="icon-sm"
-								disabled={
-									isLocked || durationSeconds >= MAX_SCENE_DURATION_SECONDS
-								}
-								onClick={() => adjustDuration(1)}
-							>
-								<PlusIcon className="size-3.5" />
-								<span className="sr-only">Increase duration</span>
-							</Button>
-							<span className="text-muted-foreground text-xs">
-								seconds ({MIN_SCENE_DURATION_SECONDS}-
-								{MAX_SCENE_DURATION_SECONDS})
-							</span>
-						</div>
-						{isLocked ? (
-							<FieldDescription>
-								Locked — this scene's video already has this exact duration
-								baked into its audio. Retry the scene to change it.
-							</FieldDescription>
-						) : null}
-					</Field>
+									<FieldDescription>
+										Feeds a future retry, never the already-generated clip.
+									</FieldDescription>
+									{fieldState.invalid && (
+										<FieldError errors={[fieldState.error]} />
+									)}
+								</Field>
+							)}
+						/>
+
+						<Controller
+							control={control}
+							name="subtitleText"
+							render={({ field, fieldState }) => (
+								<Field data-invalid={fieldState.invalid}>
+									<FieldLabel htmlFor="edit-scene-dialogue">
+										Dialogue
+									</FieldLabel>
+									<Textarea
+										{...field}
+										id="edit-scene-dialogue"
+										rows={3}
+										className="min-h-0 resize-y"
+										aria-invalid={fieldState.invalid}
+									/>
+									<FieldDescription>
+										On-screen caption, burned in at export.
+									</FieldDescription>
+									{fieldState.invalid && (
+										<FieldError errors={[fieldState.error]} />
+									)}
+								</Field>
+							)}
+						/>
+
+						<Field>
+							<FieldLabel htmlFor="edit-scene-duration">Duration</FieldLabel>
+							<div className="flex items-center gap-2">
+								<Button
+									type="button"
+									variant="outline"
+									size="icon-sm"
+									disabled={
+										isLocked || durationSeconds <= MIN_SCENE_DURATION_SECONDS
+									}
+									onClick={() => adjustDuration(-1)}
+								>
+									<MinusIcon className="size-3.5" />
+									<span className="sr-only">Decrease duration</span>
+								</Button>
+								<Controller
+									control={control}
+									name="durationSeconds"
+									render={({ field }) => (
+										<Input
+											id="edit-scene-duration"
+											type="number"
+											min={MIN_SCENE_DURATION_SECONDS}
+											max={MAX_SCENE_DURATION_SECONDS}
+											disabled={isLocked}
+											className="w-16 text-center"
+											value={field.value ?? scene.durationSeconds}
+											onChange={(event) => {
+												const parsed = Number(event.target.value);
+												if (Number.isFinite(parsed)) {
+													field.onChange(parsed);
+												}
+											}}
+										/>
+									)}
+								/>
+								<Button
+									type="button"
+									variant="outline"
+									size="icon-sm"
+									disabled={
+										isLocked || durationSeconds >= MAX_SCENE_DURATION_SECONDS
+									}
+									onClick={() => adjustDuration(1)}
+								>
+									<PlusIcon className="size-3.5" />
+									<span className="sr-only">Increase duration</span>
+								</Button>
+								<span className="text-muted-foreground text-xs">
+									sec ({MIN_SCENE_DURATION_SECONDS}-{MAX_SCENE_DURATION_SECONDS}
+									)
+								</span>
+							</div>
+							{isLocked ? (
+								<FieldDescription>
+									Locked — baked into this clip's audio. Retry to change.
+								</FieldDescription>
+							) : null}
+						</Field>
+					</div>
 
 					<DialogFooter>
 						<Button type="button" variant="outline" onClick={() => close()}>

@@ -9,6 +9,7 @@ import type {
 	Project as ProjectDto,
 	ProjectSummary,
 	ProjectsPageInput,
+	RetryProjectInput,
 	Scene as SceneDto,
 	UpdateDraftTimelineInput,
 	UpdateLanguagesInput,
@@ -20,6 +21,10 @@ import {
 } from "@video-platform-challenge/api";
 import { db, withUser } from "@video-platform-challenge/db";
 import { env } from "@video-platform-challenge/env/server";
+import {
+	createSignedDownloadUrl,
+	deleteObjectsByPrefix,
+} from "@video-platform-challenge/storage";
 import {
 	calculatePaginationMeta,
 	GENERATION_ABANDON_MINUTES,
@@ -187,6 +192,8 @@ export async function create({
 		aspectRatio: project.aspectRatio,
 		createdAt: project.createdAt,
 		thumbnailAssetId: null,
+		thumbnailKind: null,
+		thumbnailUrl: null,
 	};
 }
 
@@ -211,15 +218,28 @@ export async function list({
 			rows.map((row) => row.id),
 		);
 
-		return rows.map((row) => ({
-			id: row.id,
-			title: row.title,
-			status: row.status,
-			templateKey: row.templateKey,
-			aspectRatio: row.aspectRatio,
-			createdAt: row.createdAt,
-			thumbnailAssetId: thumbnails.get(row.id) ?? null,
-		}));
+		// Signing is local HMAC (no network) — cheap to do per row; Promise.all
+		// keeps the map body's `await` from serializing across rows. The signed
+		// GET URL travels WITH the summary so the card renders with zero extra
+		// round-trips. R2 keys never leave the server, only the short-lived URL.
+		return Promise.all(
+			rows.map(async (row) => {
+				const preview = thumbnails.get(row.id);
+				return {
+					id: row.id,
+					title: row.title,
+					status: row.status,
+					templateKey: row.templateKey,
+					aspectRatio: row.aspectRatio,
+					createdAt: row.createdAt,
+					thumbnailAssetId: preview?.id ?? null,
+					thumbnailKind: preview?.kind ?? null,
+					thumbnailUrl: preview?.r2Key
+						? (await createSignedDownloadUrl({ key: preview.r2Key })).url
+						: null,
+				};
+			}),
+		);
 	});
 }
 
@@ -508,6 +528,70 @@ export async function extend({
 }
 
 /**
+ * Re-runs a failed/stuck project's generation from where it left off. The
+ * resume-aware workflow (`runProjectGenerationMode`) reuses the existing plan
+ * and skips already-`ready` sheets/keyframes/videos, regenerating only what's
+ * missing. Guarded exactly like `extend`/scene retry: reads the project under
+ * `SELECT ... FOR UPDATE`, allows retry only when it's terminal (READY/FAILED)
+ * or wedged non-terminal past GENERATION_ABANDON_MINUTES (its workflow died),
+ * enforces the hourly kick rate limit, then flips the status to `generating`
+ * inside the same guarded transaction so a concurrent retry/extend CONFLICTs.
+ * The workflow is kicked AFTER the transaction commits.
+ */
+type RetryOptions = { session: SessionUser } & RetryProjectInput;
+
+export async function retry({
+	session,
+	id,
+}: RetryOptions): Promise<ProjectDto> {
+	const userId = session.user.id;
+
+	const updated = await withUser(db, userId, async (tx) => {
+		const project = await projectRepository.findByIdForUpdate(tx, userId, id);
+		if (!project) {
+			throw new ORPCError("NOT_FOUND");
+		}
+		// Same terminal/reclaimable guard as `extend`/scene retry: a READY or
+		// FAILED project may retry, or one wedged non-terminal past the abandon
+		// window (its workflow died). A live generating run is CONFLICT.
+		if (
+			!isProjectReclaimable({
+				status: project.status,
+				terminalStatuses: [ProjectStatus.READY, ProjectStatus.FAILED],
+				updatedAt: project.updatedAt,
+				now: new Date(),
+				abandonMinutes: GENERATION_ABANDON_MINUTES,
+			})
+		) {
+			throw new ORPCError("CONFLICT");
+		}
+
+		const recentKicks = await generationTaskRepository.countSince(
+			tx,
+			userId,
+			new Date(Date.now() - ONE_HOUR_MS),
+		);
+		if (recentKicks >= MAX_GENERATION_KICKS_PER_HOUR) {
+			rateLimited();
+		}
+
+		// Flip to `generating` inside the guarded tx so a concurrent retry/extend
+		// sees it and CONFLICTs (same race-closing move as `extend`). The
+		// resume-aware workflow reuses the existing plan + skips done assets.
+		const flipped = await projectRepository.updateById(tx, userId, id, {
+			status: ProjectStatus.GENERATING,
+		});
+		if (!flipped) {
+			throw new Error("Failed to flip project to generating for retry");
+		}
+		return flipped;
+	});
+
+	await generationService.startProjectGeneration(id, userId);
+	return toProjectDto(updated);
+}
+
+/**
  * Deletes a project and everything under it — FK cascade handles children.
  * Fix-pass W7 (delete mid-flight): best-effort terminates every in-flight
  * generation workflow instance for this project. Without this, a workflow
@@ -521,6 +605,14 @@ export async function extend({
  * rule the rest of this pipeline follows (see fetchAndPutToR2's doc
  * comment). Termination failures are swallowed per instance: the instance
  * may have already completed, errored, or been terminated already.
+ *
+ * R2 cleanup: after the DB row is gone, every object this project ever wrote
+ * lives under `users/{userId}/projects/{projectId}/` (see lib/r2-keys.ts
+ * buildAssetR2Key) — `deleteObjectsByPrefix` purges the whole prefix so no
+ * orphaned objects are left behind. Best-effort and OUTSIDE any transaction:
+ * the DB delete has already committed, so a storage failure must not fail the
+ * whole operation (that would surface an error for a project the user can no
+ * longer see); it's logged and swallowed instead.
  */
 type DeleteOptions = { session: SessionUser } & DeleteProjectInput;
 
@@ -557,6 +649,15 @@ export async function deleteProject({
 			}
 		}),
 	);
+
+	try {
+		await deleteObjectsByPrefix(`users/${userId}/projects/${id}/`);
+	} catch (error) {
+		console.error(
+			`[project.service] failed to purge R2 objects for deleted project ${id}`,
+			error,
+		);
+	}
 }
 
 /**
@@ -573,8 +674,20 @@ export async function page({
 			session.user.id,
 			query,
 		);
+		// Sign each item's `previewUrl` from the repo-internal `previewR2Key`,
+		// then DROP `previewR2Key` so the returned shape matches
+		// `projectPageItemSchema` exactly — R2 keys never reach the client, only
+		// short-lived signed URLs.
+		const signedItems = await Promise.all(
+			items.map(async ({ previewR2Key, ...item }) => ({
+				...item,
+				previewUrl: previewR2Key
+					? (await createSignedDownloadUrl({ key: previewR2Key })).url
+					: null,
+			})),
+		);
 		return {
-			items,
+			items: signedItems,
 			meta: calculatePaginationMeta(total, query.page, query.pageSize),
 		};
 	});

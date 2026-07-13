@@ -16,11 +16,15 @@ import {
 	useVideoConfig,
 } from "remotion";
 
-import { useAssetUrl } from "@/feature/studio/hooks/http/use-asset-url";
+import { useAssetUrl } from "@/feature/studio/hooks/http/use-project-asset-urls";
 import {
 	STUDIO_BACKDROP_COLOR,
 	textShadowIntensityToPixels,
 } from "@/feature/studio/lib/subtitle-canvas";
+import {
+	activeCueAt,
+	resolveSubtitleCues,
+} from "@/feature/studio/lib/subtitle-cues";
 import { STUDIO_FPS } from "@/feature/studio/lib/time";
 
 /**
@@ -49,13 +53,18 @@ export function timelineDurationInFrames(
 	return Math.max(1, Math.round(totalSeconds * fps));
 }
 
-/** Exported for `composition.test.ts` — pure, zero-DOM, so it's covered directly without mounting the Player. */
-export function findActiveScene(
+type ActiveTimelineEntry = {
+	entry: TimelineEntry;
+	/** The frame at which this entry's `<Sequence>` starts — i.e. its timeline cursor position. Subtracting this from the composition's own `frame` gives "frames into the active scene", which `StudioComposition` converts to seconds for per-time subtitle cues (see `subtitle-cues.ts`). */
+	startFrame: number;
+};
+
+/** Single source of truth for "which timeline entry is on screen at `frame`, and where does it start" — `findActiveScene` (below) and `StudioComposition`'s subtitle-cue lookup both delegate to this so the cursor math can never drift between the two. */
+function findActiveTimelineEntry(
 	timeline: TimelineEntry[],
-	scenesById: Record<string, Scene>,
 	frame: number,
 	fps: number,
-): Scene | null {
+): ActiveTimelineEntry | null {
 	let cursor = 0;
 	for (const entry of timeline) {
 		const durationInFrames = Math.max(
@@ -63,11 +72,22 @@ export function findActiveScene(
 			Math.round(entry.durationSeconds * fps),
 		);
 		if (frame < cursor + durationInFrames) {
-			return scenesById[entry.sceneId] ?? null;
+			return { entry, startFrame: cursor };
 		}
 		cursor += durationInFrames;
 	}
 	return null;
+}
+
+/** Exported for `composition.test.ts` — pure, zero-DOM, so it's covered directly without mounting the Player. */
+export function findActiveScene(
+	timeline: TimelineEntry[],
+	scenesById: Record<string, Scene>,
+	frame: number,
+	fps: number,
+): Scene | null {
+	const active = findActiveTimelineEntry(timeline, frame, fps);
+	return active ? (scenesById[active.entry.sceneId] ?? null) : null;
 }
 
 // No visual asset carries a "brand color" server-side — this is a stable,
@@ -94,7 +114,7 @@ export function gradientForScene(sceneId: string): [string, string] {
 /**
  * Data-driven Studio composition (docs/studio-ui.md §1 "Center"): one
  * `<Sequence>` per draft-timeline entry. A scene with a ready video asset
- * plays it via `OffthreadVideo` (signed URL from `assets.getDownloadUrl`);
+ * plays it via `OffthreadVideo` (signed URL from `assets.getProjectUrls`);
  * every other status renders the gradient + title placeholder, plus a
  * subtitle overlay live-styled from `subtitleStyle` so the Subtitles tab
  * previews in real time on the Player.
@@ -154,7 +174,35 @@ export function StudioComposition({
 		return scenes;
 	}, [timeline, scenesById]);
 
-	const activeScene = findActiveScene(timeline, scenesById, frame, fps);
+	const activeEntry = findActiveTimelineEntry(timeline, frame, fps);
+	const activeScene = activeEntry
+		? (scenesById[activeEntry.entry.sceneId] ?? null)
+		: null;
+	// Frames-into-the-active-scene, converted to seconds — the same "seconds
+	// into the scene" coordinate space `subtitleText` gets split across (see
+	// `buildSubtitleCues`), so a cue's window lines up with the scene's own
+	// timeline, not the whole composition's.
+	const secondsIntoScene = activeEntry
+		? (frame - activeEntry.startFrame) / fps
+		: 0;
+	// Splitting `subtitleText` into cues only depends on the active scene +
+	// its authored duration (+ its real STT `speechCues`, when present), not
+	// the current frame — memoized so this (sentence/clause regex work, or the
+	// real-cues sort) doesn't re-run every single frame while
+	// scrubbing/playing through the same scene, only when the scene changes.
+	const activeSubtitleText = activeScene?.subtitleText ?? null;
+	const activeSpeechCues = activeScene?.speechCues ?? null;
+	const activeEntryDurationSeconds = activeEntry?.entry.durationSeconds ?? 0;
+	const activeCues = useMemo(
+		() =>
+			resolveSubtitleCues(
+				activeSubtitleText,
+				activeEntryDurationSeconds,
+				activeSpeechCues,
+			),
+		[activeSubtitleText, activeEntryDurationSeconds, activeSpeechCues],
+	);
+	const activeCueText = activeCueAt(activeCues, secondsIntoScene);
 
 	return (
 		<AbsoluteFill style={{ backgroundColor: STUDIO_BACKDROP_COLOR }}>
@@ -162,10 +210,7 @@ export function StudioComposition({
 				<ScenePreload key={scene.id} scene={scene} />
 			))}
 			{sequences}
-			<SubtitleOverlay
-				style={subtitleStyle}
-				text={activeScene?.subtitleText ?? null}
-			/>
+			<SubtitleOverlay style={subtitleStyle} text={activeCueText} />
 		</AbsoluteFill>
 	);
 }

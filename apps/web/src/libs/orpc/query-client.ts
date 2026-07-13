@@ -26,20 +26,20 @@ const serializer = new StandardRPCSerializer(jsonSerializer);
 const CONNECTION_LOST_TOAST_ID = "connection-lost";
 
 /**
- * `assets.getDownloadUrl` is fetched per-asset, in the background, for every
- * thumbnail/preview on screen (Studio's Player timeline, the Assets tab, the
- * dashboard/asset grids — see `feature/studio/hooks/http/use-asset-url.ts`).
- * A single connection drop fails ALL of them at once; none of that is a
- * signal worth surfacing globally — the page's own ErrorStateCard (where one
- * exists) or the plain missing-thumbnail fallback IS the real signal for
- * those. oRPC's tanstack-query key shape is `[[...path], { type, input }]`
- * (`@orpc/tanstack-query`'s `OperationKey`), so the procedure path lives at
- * `queryKey[0]`.
+ * `assets.getProjectUrls` batches every signed thumbnail/preview URL for a
+ * project in the background (Studio's Player timeline + panels, the dashboard's
+ * latest-project asset grid — see
+ * `feature/studio/hooks/http/use-project-asset-urls.tsx`). A connection drop
+ * that fails this batch is not a signal worth surfacing globally — the page's
+ * own ErrorStateCard (where one exists) or the plain missing-thumbnail fallback
+ * IS the real signal. oRPC's tanstack-query key shape is
+ * `[[...path], { type, input }]` (`@orpc/tanstack-query`'s `OperationKey`), so
+ * the procedure path lives at `queryKey[0]`.
  */
-function isAssetDownloadUrlQuery(queryKey: readonly unknown[]): boolean {
+function isProjectAssetUrlsQuery(queryKey: readonly unknown[]): boolean {
 	const path = queryKey[0];
 	return (
-		Array.isArray(path) && path[0] === "assets" && path[1] === "getDownloadUrl"
+		Array.isArray(path) && path[0] === "assets" && path[1] === "getProjectUrls"
 	);
 }
 
@@ -66,7 +66,7 @@ export function createQueryClient() {
 				if (isServer) {
 					return;
 				}
-				if (isAssetDownloadUrlQuery(query.queryKey)) {
+				if (isProjectAssetUrlsQuery(query.queryKey)) {
 					return;
 				}
 				toast.error({

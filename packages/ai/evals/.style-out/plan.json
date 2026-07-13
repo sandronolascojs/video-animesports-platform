@@ -1,0 +1,125 @@
+{
+	"title": "Top Corner",
+	"synopsis": "With the clock bleeding into the ninetieth minute and the score locked at 1-1, Seiryu FC forward Kaito Fujimori receives the ball at midfield knowing this is the last chance of the match. Kurogane's rugged defenders Ren Asakura and Jin Kurosaki close in to end the threat, but Kaito burns past both in one explosive run. Alone with goalkeeper Shimizu, he unleashes a strike that rockets into the top corner, silencing the stadium for one frozen second before it erupts.",
+	"styleBibleSpec": {
+		"artDirection": "Modern 2020s high-budget soccer anime in the register of Blue Lock and Ao Ashi: razor-clean digital lineart with confident tapering strokes, crisp two-tone cel shading with hard shadow shapes, detailed expressive eyes with layered iris highlights, athletic anatomy drawn with real weight and torque. Saturated but controlled palette — deep club-kit blues against cool gray-green pitch tones — cinematic rim light and lens-true depth of field on wide shots, sharp speed-line bursts and smear frames reserved for peak action. This episode leans on floodlit night contrast and a single ticking scoreboard motif to keep every frame anchored to the dying seconds of the match.",
+		"lineArt": "Thick 3-4px outer silhouette keylines that taper at motion extremes and impact points, thinner 1-2px interior linework for musculature, fabric folds, and jersey seams, minimal cross-hatching, clean vector-style ink cleanup with zero sketchy noise.",
+		"colorScript": "Seiryu FC wears deep cobalt blue with white piping, Kurogane wears jet black with crimson trim, grass reads as a cool gray-green under floodlights with darker mow-stripe bands, night sky is flat charcoal-purple pierced by hard white floodlight cones, skin tones stay warm-tan to deep-brown to contrast the cool kit and pitch palette, the scoreboard glows a stark amber-red against the dark stands.",
+		"characterRendering": "Athletic 7.5-head-height proportions with visible musculature and torque in running poses, large angular eyes with two-tone layered iris highlights, hair rendered in flat color blocks with one hard-edge specular highlight strand, two-tone cel shading as the default with a third hard rim-light tone added only on peak-action frames like strikes and saves.",
+		"lighting": "Night matches (this episode) use hard white floodlight key from four elevated points, cool blue-white rim light on player edges, and deep charcoal ambient fill in the stands; day matches use a single warm sun key with soft cyan sky fill; golden-hour matches use low-angle amber key light with long raking shadows across the pitch.",
+		"cameraGrammar": "This show favors low dramatic ground-level angles on ball-impact moments, wide static establishing shots between action beats to reset geography, side-on tracking shots that run parallel to a dribble, and over-the-shoulder framing from the goalkeeper's position on shot attempts.",
+		"filmTexture": "Clean digital rendering with subtle bloom haloing the floodlights and scoreboard, light chromatic aberration trailing fast speed lines, near-zero film grain, crisp anti-aliased edges throughout.",
+		"motionLanguage": "Impact frames hold for 2-3 extra frames on ball contact and tackles, radial speed-line bursts erupt from the ball on strikes, smear frames stretch fast leg swings and sprint strides, and a single held breath-frame precedes every climactic action to build anticipation."
+	},
+	"characters": [
+		{
+			"name": "Kaito Fujimori",
+			"role": "Seiryu FC forward, protagonist",
+			"gender": "male",
+			"visualDescription": "A 2D cel-anime teenage forward with spiky choppy navy-blue hair featuring a lighter cyan undercut streak on the left side, sharp amber-gold eyes with layered highlights, warm tan skin, lean muscular build. Wears Seiryu FC's deep cobalt blue kit with white piping and white number 9 on the back, white socks pulled to the knee. Distinguishing marks: a thin scar above his left eyebrow and a small silver stud earring in his left ear."
+		},
+		{
+			"name": "Ren Asakura",
+			"role": "Kurogane center-back, rival defender",
+			"gender": "male",
+			"visualDescription": "A 2D cel-anime defender with slicked-back silver-white hair and sharp teal eyes, pale skin, tall broad-shouldered build with heavy leg muscles. Wears Kurogane's jet-black kit with crimson trim and crimson number 4 on the back. Distinguishing marks: a long diagonal scar across his right cheek and thin black eye-black stripes painted under both eyes."
+		},
+		{
+			"name": "Jin Kurosaki",
+			"role": "Kurogane fullback, second defender",
+			"gender": "male",
+			"visualDescription": "A 2D cel-anime defender with a shaved head featuring a buzzed tribal-pattern design on both sides, deep brown skin, thick dark eyebrows, stocky compact build. Wears Kurogane's jet-black kit with crimson trim and crimson number 2 on the back. Distinguishing marks: a thin gold chain visible above his collar and heavy white tape wrapped around his left wrist."
+		},
+		{
+			"name": "Shimizu",
+			"role": "Kurogane goalkeeper",
+			"gender": "male",
+			"visualDescription": "A 2D cel-anime goalkeeper with messy dark forest-green hair and sharp gray eyes, pale skin, tall lanky build with long limbs. Wears a neon yellow-green goalkeeper kit with black gloves and black number 1 on the chest. Distinguishing marks: a black anti-glare face-paint stripe smudged under each eye and a small burn-scar callus on his right palm from repeated dives."
+		}
+	],
+	"locations": [
+		{
+			"key": "stadium",
+			"name": "National Stadium Pitch",
+			"description": "A full-size soccer pitch under four towering floodlight rigs, grass cut in alternating dark and light gray-green mow-stripes, white touchlines glowing crisp against the turf. Beyond the near touchline, packed stands rise into darkness broken by scattered phone-light glimmers, and a large amber-red digital scoreboard reads '90+2 SEIRYU 1 - 1 KUROGANE' above the tunnel entrance. The night sky beyond the stadium rim is flat charcoal-purple, empty of stars, lit only by the floodlight cones.",
+			"timeOfDay": "night"
+		}
+	],
+	"scenes": [
+		{
+			"title": "One Chance Left",
+			"prompt": "Wide establishing view of the pitch at night, camera pushing slowly in from a high wide angle toward midfield as Kaito receives a rolling pass with the outside of his right foot, ball settling under him. In the deep background the amber scoreboard reads 90+2, 1-1. Ren and Jin are visible mid-sprint, closing the distance from either flank, blurred by depth of field. Kaito lifts his head, eyes locking forward down the pitch, jaw set.",
+			"dialogue": "One shot. That's all I need.",
+			"subtitleText": "One shot. That's all I need.",
+			"speaker": "Kaito Fujimori",
+			"durationSeconds": 5,
+			"characterNames": ["Kaito Fujimori", "Ren Asakura", "Jin Kurosaki"],
+			"locationKey": "stadium",
+			"cinematography": {
+				"cameraMotion": "push-in",
+				"motionNotes": "Slow deliberate push from wide establishing to a tighter medium on Kaito as he settles the ball, holding an extra beat on his eyes lifting to scan the field.",
+				"pacing": "building"
+			}
+		},
+		{
+			"title": "Two Defenders, One Gap",
+			"prompt": "Side-on tracking shot at ground level following Kaito's sprint as he drops his shoulder and nutmegs Ren with a quick low touch between his legs, speed lines trailing off his boots, then plants and cuts hard inside past Jin's desperate sliding tackle, the ball staying glued to his feet through both beats, crowd noise blurring past in the background as he bursts toward the edge of the box.",
+			"dialogue": "Not this time!",
+			"subtitleText": "Not this time!",
+			"speaker": "Ren Asakura",
+			"durationSeconds": 7,
+			"characterNames": ["Kaito Fujimori", "Ren Asakura", "Jin Kurosaki"],
+			"locationKey": "stadium",
+			"cinematography": {
+				"cameraMotion": "tracking",
+				"motionNotes": "Camera runs parallel to Kaito at sprint speed, whip-panning slightly to follow the nutmeg and the cut inside, smear frames on the leg swings, holding tight on his feet during both touches.",
+				"pacing": "frantic"
+			}
+		},
+		{
+			"title": "Top Corner",
+			"prompt": "Static wide shot from behind the box crane-tilting upward as Kaito plants his left foot and drives his right leg through the ball with full torque, radial speed lines bursting off the strike. Shimizu launches into a full-stretch dive across goal, gloved fingertips reaching. The ball rips past him into the top right corner, netting snapping taut on impact, held for an extra beat as the stadium light flares off the rippling net.",
+			"dialogue": "There!",
+			"subtitleText": "There!",
+			"speaker": "Kaito Fujimori",
+			"durationSeconds": 9,
+			"characterNames": ["Kaito Fujimori", "Shimizu"],
+			"locationKey": "stadium",
+			"cinematography": {
+				"cameraMotion": "crane-up",
+				"motionNotes": "Camera holds low and wide through the windup and strike, craning upward to follow the ball's flight into the top corner, then holds still on the rippling net for the climactic freeze.",
+				"pacing": "frantic"
+			}
+		}
+	],
+	"keyframes": [
+		{
+			"description": "Kaito frozen mid-stride at midfield, the ball resting under his lifted right foot at the instant of first touch, eyes raised down the pitch, the amber scoreboard reading 90+2 1-1 glowing in the deep background, Ren and Jin frozen mid-sprint approaching from opposite flanks.",
+			"charactersPresent": ["Kaito Fujimori", "Ren Asakura", "Jin Kurosaki"],
+			"locationKey": "stadium",
+			"shotScale": "wide",
+			"cameraAngle": "eye-level"
+		},
+		{
+			"description": "Kaito frozen just past Ren, the ball caught mid-roll between his feet, Ren frozen off-balance mid-lunge behind him with one leg extended into empty air, Jin frozen mid-slide diving in from the right, speed lines still hanging in the frame around Kaito's trailing foot.",
+			"charactersPresent": ["Kaito Fujimori", "Ren Asakura", "Jin Kurosaki"],
+			"locationKey": "stadium",
+			"shotScale": "medium",
+			"cameraAngle": "low-angle"
+		},
+		{
+			"description": "Kaito frozen with his left foot planted and right leg drawn back at full extension a fraction before contact, the ball hovering just ahead of his striking foot at the edge of the box, Shimizu frozen crouched low in the goal mouth behind him, weight coiled to dive.",
+			"charactersPresent": ["Kaito Fujimori", "Shimizu"],
+			"locationKey": "stadium",
+			"shotScale": "medium",
+			"cameraAngle": "over-the-shoulder"
+		},
+		{
+			"description": "The ball frozen buried in the top right corner netting, mesh snapped taut around it, Shimizu frozen mid-dive with gloved fingertips inches short of the ball, Kaito frozen in his follow-through with his kicking leg still fully extended toward the goal, floodlight glare flaring off the rippling net.",
+			"charactersPresent": ["Kaito Fujimori", "Shimizu"],
+			"locationKey": "stadium",
+			"shotScale": "close-up",
+			"cameraAngle": "high-angle"
+		}
+	]
+}

@@ -19,6 +19,7 @@ import {
 } from "@/components/ai-elements/message";
 import { Suggestion } from "@/components/ai-elements/suggestion";
 import { getStatusBadge, type ToolPart } from "@/components/ai-elements/tool";
+import { GridLoaderPill } from "@/components/app/grid-loader-pill";
 import { Button } from "@/components/ui/button";
 import {
 	Empty,
@@ -52,8 +53,10 @@ const CHAT_SUGGESTIONS = [
  * Premium empty state (docs §3d, §1 "Premium empty states"): a soft icon +
  * bold title + one muted hint, then the starter bubbles — each an
  * ai-elements `Suggestion` (outline pill, the same recipe used for
- * recommendation chips elsewhere), stacked full-width instead of the
- * horizontal `Suggestions` scroller (too cramped for this 23rem rail).
+ * recommendation chips elsewhere). Laid out in a wrapping flex row (NOT the
+ * stock `Suggestions` horizontal ScrollArea, which overflowed this 23rem rail
+ * and hid the last pill behind a scroll) so all three distribute across the
+ * width and stay fully visible without scrolling.
  */
 function AgentChatEmptyState({
 	onSuggestion,
@@ -72,13 +75,12 @@ function AgentChatEmptyState({
 				</EmptyDescription>
 			</EmptyHeader>
 			<EmptyContent>
-				<div className="flex w-full flex-col gap-2">
+				<div className="flex w-full flex-wrap justify-center gap-2">
 					{CHAT_SUGGESTIONS.map((suggestion) => (
 						<Suggestion
 							key={suggestion}
 							suggestion={suggestion}
 							onClick={onSuggestion}
-							className="w-full"
 						/>
 					))}
 				</div>
@@ -197,7 +199,7 @@ function ChatMessage({ message }: { message: UIMessage }) {
  * a second, redundant outer scroller.
  */
 export function AgentChatSidebar() {
-	const { messages, error, regenerate, clearError, requestPrefill } =
+	const { messages, status, error, regenerate, clearError, requestPrefill } =
 		useStudioChat();
 
 	return (
@@ -226,6 +228,15 @@ export function AgentChatSidebar() {
 							{messages.map((message) => (
 								<ChatMessage key={message.id} message={message} />
 							))}
+							{status === "submitted" ? (
+								<div className="px-1 pt-1">
+									<GridLoaderPill
+										label="Thinking"
+										mode="pulse"
+										pattern="plus-hollow"
+									/>
+								</div>
+							) : null}
 						</ConversationContent>
 					</Conversation>
 				)}

@@ -41,6 +41,7 @@ export function toSceneDto(row: SceneRow): SceneDto {
 		dialogue: row.dialogue,
 		speakerName: row.speakerName,
 		subtitleText: row.subtitleText,
+		speechCues: row.speechCues ?? null,
 		status: row.status,
 		durationSeconds: row.durationSeconds,
 		startKeyframeAssetId: row.startKeyframeAssetId,

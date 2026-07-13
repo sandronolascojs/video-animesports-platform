@@ -38,6 +38,9 @@ export const projectsRouter = {
 	extend: protectedProcedure.projects.extend.handler(({ context, input }) =>
 		projectService.extend({ session: context.session, ...input }),
 	),
+	retry: protectedProcedure.projects.retry.handler(({ context, input }) =>
+		projectService.retry({ session: context.session, ...input }),
+	),
 	delete: protectedProcedure.projects.delete.handler(({ context, input }) =>
 		projectService.deleteProject({ session: context.session, ...input }),
 	),

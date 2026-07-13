@@ -23,6 +23,7 @@ function makeScene(id: string, overrides: Partial<Scene> = {}): Scene {
 		prompt: `Prompt for ${id}`,
 		projectId: "project-1",
 		speakerName: null,
+		speechCues: null,
 		startKeyframeAssetId: null,
 		status: SceneStatus.VIDEO_READY,
 		subtitleText: null,

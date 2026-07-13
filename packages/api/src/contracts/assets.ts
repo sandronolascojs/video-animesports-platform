@@ -2,10 +2,10 @@ import { oc } from "@orpc/contract";
 
 import { notFoundError } from "../errors";
 import {
-	assetDownloadUrlSchema,
 	createUploadInputSchema,
 	createUploadOutputSchema,
-	getAssetDownloadUrlInputSchema,
+	getProjectAssetUrlsInputSchema,
+	projectAssetUrlsSchema,
 } from "../schemas/asset";
 import { assetsPageInputSchema, assetsPageOutputSchema } from "../schemas/page";
 
@@ -18,15 +18,14 @@ export const assetsContract = {
 	page: oc.input(assetsPageInputSchema).output(assetsPageOutputSchema),
 
 	/**
-	 * Issues a short-lived signed GET URL for an asset's R2 object — R2
-	 * stays private, this is the only sanctioned read path (docs §5d.10).
-	 * Called by the Studio Player/timeline thumbnails, the storyboard, and
-	 * the asset browser for playback/preview/download.
+	 * Batch: every signed asset URL for one project in a single call — the only
+	 * sanctioned read path for R2 objects (docs §5d.10), feeding the Studio
+	 * player/panels, storyboard, and asset browser. R2 keys never leave the
+	 * server; only short-lived signed URLs are returned.
 	 */
-	getDownloadUrl: oc
-		.input(getAssetDownloadUrlInputSchema)
-		.output(assetDownloadUrlSchema)
-		.errors({ NOT_FOUND: notFoundError }),
+	getProjectUrls: oc
+		.input(getProjectAssetUrlsInputSchema)
+		.output(projectAssetUrlsSchema),
 
 	/**
 	 * Creates a pending `render`-kind asset row and issues a presigned PUT

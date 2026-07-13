@@ -71,6 +71,13 @@
 			"when": 1783892321336,
 			"tag": "0009_clammy_reptil",
 			"breakpoints": true
+		},
+		{
+			"idx": 10,
+			"version": "7",
+			"when": 1783919005851,
+			"tag": "0010_curvy_scalphunter",
+			"breakpoints": true
 		}
 	]
 }

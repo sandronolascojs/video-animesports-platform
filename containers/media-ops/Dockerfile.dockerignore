@@ -1,0 +1,27 @@
+# Scoped to containers/media-ops/Dockerfile (BuildKit's per-Dockerfile
+# ignore file: "<path-to-Dockerfile>.dockerignore", resolved against the
+# build context root). The build context is the monorepo root (see
+# Dockerfile's header comment), so this keeps that context down to source
+# only — every workspace's resolved node_modules, build output, and local
+# state stay out.
+**/node_modules
+.git
+.turbo
+.nx
+.alchemy
+**/dist
+**/build
+**/.next
+**/coverage
+.env
+**/.env
+**/.env.*
+!**/.env.example
+*.log
+**/*.log
+.DS_Store
+tmp
+temp
+.cache
+.vscode
+.idea

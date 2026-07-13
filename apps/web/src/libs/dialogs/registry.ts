@@ -18,6 +18,16 @@ export type DialogPayloads = {
 		onConfirm: () => void;
 	};
 	/**
+	 * Confirms permanently deleting a whole project (sidebar "Recent" row
+	 * action). `onConfirm` is the caller's own delete mutation trigger — the
+	 * dialog only owns the confirm UI, not where the project lives. Deleting a
+	 * project also purges its R2 objects server-side (project.service.ts).
+	 */
+	"delete-project": {
+		title: string;
+		onConfirm: () => void;
+	};
+	/**
 	 * Studio quality pass §2b: the scene row's ONLY editor now (the old
 	 * inline prompt/dialogue/subtitle expand under the row is gone) — `scene`
 	 * is a snapshot at open-time (edits are explicit Save, not live-typed

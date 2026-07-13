@@ -9,11 +9,11 @@ import { ClapperboardIcon, FolderIcon } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useQueryStates } from "nuqs";
-import { ErrorStateCard } from "@/components/kit/error-state-card";
-import { FrostedVideo } from "@/components/kit/frosted-media";
-import { MediaCard, MediaCardSkeleton } from "@/components/kit/media-card";
-import { FilterRow, ResourceFilters } from "@/components/kit/resource-filters";
-import { ResourceLayout } from "@/components/kit/resource-layout";
+import { ErrorStateCard } from "@/components/app/error-state-card";
+import { FrostedImage, FrostedVideo } from "@/components/app/frosted-media";
+import { MediaCard, MediaCardSkeleton } from "@/components/app/media-card";
+import { FilterRow, ResourceFilters } from "@/components/app/resource-filters";
+import { ResourceLayout } from "@/components/app/resource-layout";
 import {
 	Select,
 	SelectContent,
@@ -26,35 +26,43 @@ import {
 import { EmptyStateCard } from "@/feature/home/components/dashboard-sections";
 import { SPORT_TEMPLATES } from "@/feature/home/sport-templates";
 import { useProjectsPage } from "@/feature/projects/hooks/http/use-projects-page";
-import { useAssetUrl } from "@/feature/studio/hooks/http/use-asset-url";
 import { projectsPageParams } from "@/libs/pagination/search-params";
 
-/** Looping preview of the project's first ready scene video. */
+/**
+ * The project's own preview: its first ready scene video (looping), or — while
+ * it's still generating — its first keyframe still. Only a project that has
+ * produced NOTHING falls back to the generic template art. Frosted well: 9:16
+ * content renders contained over its own blurred cover copy, so the card stays
+ * 16:9 everywhere.
+ */
 function ProjectPreview({ item }: { item: ProjectPageItem }) {
-	const { data: signed } = useAssetUrl(item.previewAssetId ?? undefined);
 	const template = SPORT_TEMPLATES.find(
 		(candidate) => candidate.key === item.templateKey,
 	);
 
-	return (
-		<>
-			{template?.hasStill ? (
-				<Image
-					src={`/templates/${template.key}-v2.png`}
-					alt=""
-					fill
-					sizes="480px"
-					className="object-cover"
-				/>
-			) : (
-				<div className="absolute inset-0 bg-gradient-to-br from-chart-1 to-chart-2" />
-			)}
-			{signed?.url ? (
-				// Frosted well: a 9:16 project's preview renders contained over
-				// its own blurred cover copy — the card stays 16:9 everywhere.
-				<FrostedVideo src={signed.url} />
-			) : null}
-		</>
+	// The project owns a preview asset — show it via the server-minted signed
+	// URL bundled on the page item, never the generic template still.
+	if (item.previewUrl) {
+		const isVideo =
+			item.previewKind === "scene_video" || item.previewKind === "render";
+		return isVideo ? (
+			<FrostedVideo src={item.previewUrl} />
+		) : (
+			<FrostedImage src={item.previewUrl} alt="" />
+		);
+	}
+
+	// Nothing generated yet — template art, or a gradient for template-less keys.
+	return template?.hasStill ? (
+		<Image
+			src={`/templates/${template.key}-v2.png`}
+			alt=""
+			fill
+			sizes="480px"
+			className="object-cover"
+		/>
+	) : (
+		<div className="absolute inset-0 bg-gradient-to-br from-chart-1 to-chart-2" />
 	);
 }
 

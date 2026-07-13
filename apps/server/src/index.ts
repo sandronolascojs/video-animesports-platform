@@ -11,6 +11,7 @@ import type { UIMessage } from "ai";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { MediaOpsContainer } from "./durable/media-ops-container";
 import { ProjectEventsDO } from "./durable/project-events";
 import {
 	agentChatRequestBodySchema,
@@ -26,10 +27,10 @@ import { canAccessProjectEvents } from "./services/project-events.service";
 import { VideoGenerationWorkflow } from "./workflows/video-generation";
 
 // Re-exported (not just defined) so the compiled worker script exposes them
-// as named exports — the VIDEO_GENERATION_WORKFLOW / PROJECT_EVENTS bindings
-// in packages/infra/alchemy.run.ts resolve these classes by `className` off
-// this entrypoint module.
-export { ProjectEventsDO, VideoGenerationWorkflow };
+// as named exports — the VIDEO_GENERATION_WORKFLOW / PROJECT_EVENTS / MEDIA_OPS
+// bindings in packages/infra/alchemy.run.ts resolve these classes by
+// `className` off this entrypoint module.
+export { MediaOpsContainer, ProjectEventsDO, VideoGenerationWorkflow };
 
 const app = new Hono();
 

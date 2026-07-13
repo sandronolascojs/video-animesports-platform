@@ -5,7 +5,7 @@ import { CheckIcon, DownloadIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { useAssetUrl } from "@/feature/studio/hooks/http/use-asset-url";
+import { useAssetUrl } from "@/feature/studio/hooks/http/use-project-asset-urls";
 import { useRestoreVersion } from "@/feature/studio/hooks/http/use-versions";
 import { useRenderExport } from "@/feature/studio/hooks/use-render-export";
 import { useStudio } from "@/feature/studio/stores/use-studio";

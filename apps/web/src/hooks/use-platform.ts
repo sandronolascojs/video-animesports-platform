@@ -56,7 +56,7 @@ export type UsePlatformResult = {
  *
  * `isMac`/`modLabel` are gated behind a `mounted` flag (same pattern as
  * `AIDockInput`'s `resolvedTheme` gating — see
- * `components/kit/ai-dock/ai-dock-input.tsx`): the server has no
+ * `components/app/ai-dock/ai-dock-input.tsx`): the server has no
  * `navigator`, so it always renders the `isMac:false`/`"Ctrl"` default.
  * Returning the *real* detected value on the client's first render would
  * mismatch that SSR output whenever the client actually is a Mac, which

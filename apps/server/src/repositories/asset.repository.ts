@@ -1,7 +1,7 @@
 import type { UserScopedTx } from "@video-platform-challenge/db";
 import { assets, projects, scenes } from "@video-platform-challenge/db/schema";
 import { AssetKind, AssetStatus } from "@video-platform-challenge/types";
-import { and, asc, count, desc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, or, sql } from "drizzle-orm";
 
 export type AssetRow = typeof assets.$inferSelect;
 export type NewAssetRow = typeof assets.$inferInsert;
@@ -77,24 +77,52 @@ export async function findManyByProjectId(
 }
 
 /**
- * The list/create summary card thumbnail: the earliest READY
- * character-sheet/keyframe asset per project (docs §6
- * `projectSummarySchema.thumbnailAssetId`). One `DISTINCT ON` query for the
- * whole page of project ids — never one query per project.
+ * The list/create summary card preview per project (docs §6
+ * `projectSummarySchema.thumbnailAssetId`/`thumbnailKind`): the project's own
+ * media, preferring the first READY scene video → final render → keyframe /
+ * character sheet, so a card shows its actual footage rather than generic
+ * template art. One `DISTINCT ON` query for the whole page of project ids —
+ * never one query per project. Also reused by
+ * `project.repository.ts::pageProjects` (the /projects page cards) with a
+ * narrower `candidateKinds` — see that call site for why.
+ *
+ * `candidateKinds` is the allowed-kind filter (defaults to this function's
+ * original 4 kinds). Priority order is NOT parameterized: scene_video always
+ * outranks render, and every other allowed kind (keyframe, character_sheet,
+ * or whatever a caller passes) ties for last place, broken by `createdAt`
+ * ascending — same semantics as before this was parameterized.
  */
 export async function findThumbnailsByProjectIds(
 	tx: UserScopedTx,
 	userId: string,
 	projectIds: string[],
-): Promise<Map<string, string>> {
+	candidateKinds: readonly AssetKind[] = [
+		AssetKind.SCENE_VIDEO,
+		AssetKind.RENDER,
+		AssetKind.KEYFRAME,
+		AssetKind.CHARACTER_SHEET,
+	],
+): Promise<Map<string, { id: string; kind: AssetKind; r2Key: string }>> {
 	if (projectIds.length === 0) {
 		return new Map();
 	}
+
+	// DISTINCT ON (project_id) keeps the first row per project under this order:
+	// kind priority first (video beats stills, everything else ties for last —
+	// there's no pure-builder CASE in drizzle, so this stays a minimal `sql`
+	// fragment), then oldest — the earliest asset in that tier, so cards stay
+	// stable as later assets land.
+	const kindPriority = sql`case ${assets.kind}
+		when ${AssetKind.SCENE_VIDEO} then 0
+		when ${AssetKind.RENDER} then 1
+		else 2 end`;
 
 	const rows = await tx
 		.selectDistinctOn([assets.projectId], {
 			projectId: assets.projectId,
 			id: assets.id,
+			kind: assets.kind,
+			r2Key: assets.r2Key,
 		})
 		.from(assets)
 		.where(
@@ -102,12 +130,21 @@ export async function findThumbnailsByProjectIds(
 				eq(assets.userId, userId),
 				inArray(assets.projectId, projectIds),
 				eq(assets.status, AssetStatus.READY),
-				inArray(assets.kind, [AssetKind.CHARACTER_SHEET, AssetKind.KEYFRAME]),
+				inArray(assets.kind, candidateKinds),
 			),
 		)
-		.orderBy(assets.projectId, asc(assets.createdAt));
+		.orderBy(assets.projectId, kindPriority, asc(assets.createdAt));
 
-	return new Map(rows.map((row) => [row.projectId, row.id]));
+	return new Map(
+		rows.map((row) => [
+			row.projectId,
+			// r2Key is nullable in general but NOT NULL for a READY asset (see the
+			// column's doc comment: "Nullable until the generation completes") —
+			// the WHERE above filters `status = READY`, so every row here has one.
+			// biome-ignore lint/style/noNonNullAssertion: READY ⟹ r2Key present
+			{ id: row.id, kind: row.kind, r2Key: row.r2Key! },
+		]),
+	);
 }
 
 /**
@@ -147,6 +184,9 @@ export async function pageAssets(
 			projectTitle: projects.title,
 			projectTemplateKey: projects.templateKey,
 			scenePrompt: scenes.prompt,
+			// Internal — the service signs `downloadUrl` from this then DROPs it;
+			// r2Key never reaches the client.
+			r2Key: assets.r2Key,
 		})
 		.from(assets)
 		.innerJoin(projects, eq(assets.projectId, projects.id))

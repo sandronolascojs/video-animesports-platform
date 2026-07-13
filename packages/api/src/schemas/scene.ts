@@ -29,6 +29,19 @@ export const timelineEntrySchema = z.object({
 	durationSeconds: sceneDurationSchema,
 });
 
+/**
+ * One real, speech-timed subtitle cue — structurally mirrors packages/types
+ * `SpeechCue` exactly (same parallel-declaration convention as
+ * `subtitleStyleSchema`/`SubtitleStyle` in schemas/project.ts). Populated by
+ * the server's kie Scribe STT step; see `sceneSchema.speechCues`'s own doc
+ * comment for the full story.
+ */
+export const speechCueSchema = z.object({
+	text: z.string(),
+	startSeconds: z.number(),
+	endSeconds: z.number(),
+});
+
 export const sceneSchema = z.object({
 	id: z.string(),
 	projectId: z.string(),
@@ -41,10 +54,16 @@ export const sceneSchema = z.object({
 	speakerName: z.string().nullable(),
 	// Subtitle-language caption text, burned in at render time (docs §5b).
 	subtitleText: z.string().nullable(),
+	// Real, speech-timed cues from kie's ElevenLabs Scribe STT (docs
+	// media-ops-container.md Feature 2) — null until the best-effort STT step
+	// runs/succeeds for this scene (or the scene has no dialogue/subtitle to
+	// transcribe). `apps/web`'s subtitle-cues.ts prefers these VERBATIM over
+	// its own word-count estimate whenever they're present.
+	speechCues: z.array(speechCueSchema).nullable(),
 	status: sceneStatusSchema,
 	durationSeconds: sceneDurationSchema,
 	// Keyframe fencing refs (docs §2) — asset ids, resolve via
-	// `assets.getDownloadUrl` for a signed playback/preview URL.
+	// `assets.getProjectUrls` for a signed playback/preview URL.
 	startKeyframeAssetId: z.string().nullable(),
 	endKeyframeAssetId: z.string().nullable(),
 	videoAssetId: z.string().nullable(),
@@ -75,6 +94,7 @@ export const removeSceneOutputSchema = z.object({
 
 export type SceneStatusValue = z.infer<typeof sceneStatusSchema>;
 export type TimelineEntry = z.infer<typeof timelineEntrySchema>;
+export type SpeechCue = z.infer<typeof speechCueSchema>;
 export type Scene = z.infer<typeof sceneSchema>;
 export type UpdateSceneInput = z.infer<typeof updateSceneInputSchema>;
 export type RetrySceneInput = z.infer<typeof retrySceneInputSchema>;

@@ -7,6 +7,7 @@ import { LeftPanel } from "@/feature/studio/components/left-panel";
 import { PlayerCanvas } from "@/feature/studio/components/player-canvas";
 import { StudioTopbar } from "@/feature/studio/components/studio-topbar";
 import { TimelineStrip } from "@/feature/studio/components/timeline-strip";
+import { ProjectAssetUrlsProvider } from "@/feature/studio/hooks/http/use-project-asset-urls";
 import { useFirstRunToast } from "@/feature/studio/hooks/use-first-run-toast";
 import { RenderExportProvider } from "@/feature/studio/hooks/use-render-export";
 import { DraftStoreProvider } from "@/feature/studio/stores/draft-store-provider";
@@ -75,7 +76,9 @@ export type StudioViewProps = {
 export function StudioView({ projectId, initialDetail }: StudioViewProps) {
 	return (
 		<DraftStoreProvider projectId={projectId} initialDetail={initialDetail}>
-			<StudioViewInner />
+			<ProjectAssetUrlsProvider projectId={projectId}>
+				<StudioViewInner />
+			</ProjectAssetUrlsProvider>
 		</DraftStoreProvider>
 	);
 }

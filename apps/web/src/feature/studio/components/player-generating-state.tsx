@@ -2,10 +2,9 @@
 
 import { SceneStatus } from "@video-platform-challenge/types";
 import { RotateCcwIcon } from "lucide-react";
-
+import { GridLoaderPill } from "@/components/app/grid-loader-pill";
 import { Button } from "@/components/ui/button";
-import type { PresetPattern } from "@/components/ui/smoothui/grid-loader";
-import { GridLoader } from "@/components/ui/smoothui/grid-loader";
+import type { PresetPattern } from "@/components/ui/grid-loader";
 import { WordRotate } from "@/components/ui/word-rotate";
 import { useRetryScene } from "@/feature/studio/hooks/http/use-scenes";
 import {
@@ -68,8 +67,10 @@ export type PlayerGeneratingStateProps = {
  * content directly on that glass — no nested card/plate, so generating and
  * failure both read as the player itself, not a box inside a box.
  *
- * The loader (issue #3): ONE `GridLoader` whose pattern sequence is picked by
- * the live phase (`getFirstRunPhase`) and remounted (`key={phase}`) on every
+ * The loader (issue #3): ONE small `GridLoaderPill` (a compact GridLoader mark
+ * + the live label on a black chip — the app's shared professional loading
+ * affordance, same pill the Agent chat uses) whose pattern sequence is picked
+ * by the live phase (`getFirstRunPhase`) and remounted (`key={phase}`) on every
  * phase change so the mark and the `WordRotate` label switch together — a
  * thinking/generating/rendering-style cycle tied to the REAL phase, never a
  * decorative loop disconnected from it. The label itself is driven straight
@@ -136,24 +137,15 @@ export function PlayerGeneratingState({
 			className="flex flex-col items-center gap-5 px-8 py-9 text-center"
 			role="status"
 		>
-			<GridLoader
+			<GridLoaderPill
 				key={phase}
+				label={<WordRotate words={[describeFirstRunStatus(project, scenes)]} />}
 				mode="sequence"
 				sequence={PHASE_SEQUENCE[phase]}
-				color="amber"
-				size={72}
-				blur={2}
-				speed="normal"
-				rounded
 			/>
-			<div className="flex flex-col gap-1.5">
-				<p className="font-medium text-foreground text-sm">
-					<WordRotate words={[describeFirstRunStatus(project, scenes)]} />
-				</p>
-				<p className="max-w-sm text-muted-foreground text-xs">
-					Watch your episode come together in the timeline below.
-				</p>
-			</div>
+			<p className="max-w-sm text-muted-foreground text-xs">
+				Watch your episode come together in the timeline below.
+			</p>
 		</div>
 	);
 }

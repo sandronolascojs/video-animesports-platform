@@ -1,11 +1,11 @@
 import { ORPCError } from "@orpc/server";
 import type {
-	AssetDownloadUrl,
 	Asset as AssetDto,
 	AssetsPageInput,
 	CreateUploadInput,
 	CreateUploadOutput,
-	GetAssetDownloadUrlInput,
+	GetProjectAssetUrlsInput,
+	ProjectAssetUrls,
 } from "@video-platform-challenge/api";
 import { db, withUser } from "@video-platform-challenge/db";
 import {
@@ -51,26 +51,37 @@ export function toAssetDto(row: AssetRow): AssetDto {
 	};
 }
 
-type GetDownloadUrlOptions = {
-	session: SessionUser;
-} & GetAssetDownloadUrlInput;
-
-export async function getDownloadUrl({
+/**
+ * Batch: every signed asset URL for one project in a single call — the single
+ * signed-URL read path for the Studio player/panels. R2 keys
+ * never leave the server; only short-lived signed URLs are returned. Assets
+ * without an `r2Key` (not yet generated) are skipped — they have nothing to
+ * sign. No ownership check / NOT_FOUND: `findManyByProjectId` is user-scoped,
+ * so a foreign/missing project yields `[]`, which leaks nothing.
+ */
+export async function getProjectAssetUrls({
 	session,
-	id,
-}: GetDownloadUrlOptions): Promise<AssetDownloadUrl> {
-	const asset = await withUser(db, session.user.id, (tx) =>
-		assetRepository.findById(tx, session.user.id, id),
+	projectId,
+}: {
+	session: SessionUser;
+} & GetProjectAssetUrlsInput): Promise<ProjectAssetUrls> {
+	const rows = await withUser(db, session.user.id, (tx) =>
+		assetRepository.findManyByProjectId(tx, session.user.id, projectId),
 	);
-
-	// Missing, foreign-owned, or not-yet-generated (no r2Key) all read as the
-	// same "nothing to download" state — never FORBIDDEN (docs §5d.6).
-	if (!asset?.r2Key) {
-		throw new ORPCError("NOT_FOUND");
-	}
-
-	const signed = await createSignedDownloadUrl({ key: asset.r2Key });
-	return { url: signed.url, expiresAt: signed.expiresAt };
+	return Promise.all(
+		rows
+			.filter((row): row is typeof row & { r2Key: string } =>
+				Boolean(row.r2Key),
+			)
+			.map(async (row) => {
+				const signed = await createSignedDownloadUrl({ key: row.r2Key });
+				return {
+					assetId: row.id,
+					url: signed.url,
+					expiresAt: signed.expiresAt,
+				};
+			}),
+	);
 }
 
 /**
@@ -138,8 +149,19 @@ export async function page({
 			session.user.id,
 			query,
 		);
+		// Sign each item's `downloadUrl` from the repo-internal `r2Key`, then
+		// DROP `r2Key` so the returned shape matches `assetPageItemSchema` exactly
+		// — R2 keys never reach the client, only short-lived signed URLs.
+		const signedItems = await Promise.all(
+			items.map(async ({ r2Key, ...item }) => ({
+				...item,
+				downloadUrl: r2Key
+					? (await createSignedDownloadUrl({ key: r2Key })).url
+					: null,
+			})),
+		);
 		return {
-			items,
+			items: signedItems,
 			meta: calculatePaginationMeta(total, query.page, query.pageSize),
 		};
 	});

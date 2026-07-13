@@ -1,4 +1,12 @@
-import { index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import type { SpeechCue } from "@video-platform-challenge/types";
+import {
+	index,
+	integer,
+	jsonb,
+	pgTable,
+	text,
+	timestamp,
+} from "drizzle-orm/pg-core";
 import { sceneStatusEnum } from "../shared/enums";
 import { id } from "../shared/id";
 import { tenantIsolationPolicy } from "../shared/rls";
@@ -45,6 +53,15 @@ export const scenes = pgTable(
 			onDelete: "set null",
 		}),
 		failReason: text("fail_reason"),
+		// Real, speech-timed subtitle cues (docs media-ops-container.md Feature
+		// 2) — populated best-effort by `generation.service.ts::
+		// extractAndStoreSceneSubtitles` from the ACTUAL spoken audio via kie's
+		// ElevenLabs Scribe STT, once per scene right after its video ingests.
+		// Null until that step runs/succeeds (never generated for a silent
+		// scene) — `apps/web`'s subtitle-cues.ts falls back to its word-count
+		// ESTIMATE whenever this is null/empty, so nothing regresses for an
+		// older or STT-skipped scene.
+		speechCues: jsonb("speech_cues").$type<SpeechCue[]>(),
 		createdAt: timestamp("created_at").defaultNow().notNull(),
 		updatedAt: timestamp("updated_at")
 			.defaultNow()

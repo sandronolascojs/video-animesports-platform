@@ -8,15 +8,16 @@ import {
 	MoreHorizontal,
 	PlusIcon,
 	SearchIcon,
+	Trash2Icon,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type * as React from "react";
 
-import { AppLogo } from "@/components/kit/app-logo";
-import { useCommandPalette } from "@/components/kit/command-palette";
-import { useCreateProjectModal } from "@/components/kit/create-project-modal";
-import { JewelIcon } from "@/components/kit/jewel-icon";
+import { AppLogo } from "@/components/app/app-logo";
+import { useCommandPalette } from "@/components/app/command-palette";
+import { useCreateProjectModal } from "@/components/app/create-project-modal";
+import { JewelIcon } from "@/components/app/jewel-icon";
 import type { NavUserData } from "@/components/nav-user";
 import { NavUser } from "@/components/nav-user";
 import {
@@ -39,14 +40,14 @@ import {
 	SidebarMenuItem,
 	SidebarTrigger,
 } from "@/components/ui/sidebar";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { FOCUS_COMPOSER_EVENT } from "@/constants/app.constants";
-import { useProjects } from "@/feature/home/hooks/http/use-projects";
-import { usePlatform } from "@/hooks/use-platform";
+import {
+	useDeleteProject,
+	useProjects,
+} from "@/feature/home/hooks/http/use-projects";
+import { usePlatform, useShortcut } from "@/hooks/use-platform";
+import { useDialog } from "@/libs/dialogs/use-dialog";
+import { toast } from "@/libs/toast";
 import { cn } from "@/libs/utils";
 
 export type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
@@ -77,6 +78,12 @@ function NewProjectPill() {
 		}
 		open();
 	};
+
+	// The ⌘↵ / Ctrl+↵ badge on this pill, made functional (mirrors the
+	// palette's ⌘K and the Studio rail's ⌘J registration): fires the SAME
+	// route-aware handler as the click — on Home it focuses the hero composer,
+	// everywhere else it opens the create-project AI-input modal.
+	useShortcut("enter", focusNewProject);
 
 	return (
 		<button
@@ -220,15 +227,13 @@ function NavMain() {
 
 /**
  * "Recent" group — NavProjects.tsx reference pattern: per-row
- * `SidebarMenuAction showOnHover` opening a `DropdownMenu`. Trimmed to the
- * two actions this app actually supports: "Open" (navigates) and a disabled
- * "Delete" stub. Radix sets `pointer-events-none` on a disabled
- * `DropdownMenuItem` (see its `data-disabled:pointer-events-none` class in
- * `ui/dropdown-menu.tsx`), which would normally also swallow hover and keep
- * a wrapping `Tooltip` from ever firing. Wrapping the disabled item in a
- * plain `span` (which keeps pointer-events) and making that span the
- * `TooltipTrigger` sidesteps the issue: the span still receives the hover,
- * the item inside just visually/functionally ignores clicks.
+ * `SidebarMenuAction showOnHover` opening a `DropdownMenu`. Two actions:
+ * "Open" (navigates) and a destructive "Delete" that opens the
+ * `delete-project` confirm dialog (`useDialog`). Confirming fires
+ * `useDeleteProject`, which cascades the DB rows and purges the project's R2
+ * objects server-side (project.service.ts), then invalidates the list so this
+ * row disappears. The success toast is fired from the mutation's own
+ * `onSuccess` (not the dialog) so it never races the `onError` toast.
  *
  * Data comes straight from the client `useProjects()` hook (docs' "keep it
  * simple: client hook reuse") rather than an SSR prefetch — the private
@@ -238,6 +243,8 @@ function NavMain() {
  */
 function NavRecentProjects() {
 	const { data: projects = [], isError, refetch } = useProjects();
+	const { open } = useDialog();
+	const deleteProject = useDeleteProject();
 
 	return (
 		<SidebarGroup className="group-data-[collapsible=icon]:hidden">
@@ -277,14 +284,37 @@ function NavRecentProjects() {
 									<DropdownMenuItem asChild>
 										<Link href={`/projects/${project.id}`}>Open</Link>
 									</DropdownMenuItem>
-									<Tooltip>
-										<TooltipTrigger asChild>
-											<span>
-												<DropdownMenuItem disabled>Delete</DropdownMenuItem>
-											</span>
-										</TooltipTrigger>
-										<TooltipContent side="right">Coming in v2</TooltipContent>
-									</Tooltip>
+									<DropdownMenuItem
+										variant="destructive"
+										onSelect={() => {
+											const title = project.title ?? "Untitled project";
+											open("delete-project", {
+												title,
+												onConfirm: () => {
+													deleteProject.mutate(
+														{ id: project.id },
+														{
+															// Success toast lives with the mutation call
+															// (not the dialog) so it only fires once the
+															// delete actually resolves — never alongside
+															// `useDeleteProject`'s onError toast.
+															onSuccess: () => {
+																toast.success({
+																	title: `Deleted "${title}"`,
+																	description:
+																		"The project and its files were removed.",
+																	icon: <Trash2Icon className="size-4" />,
+																});
+															},
+														},
+													);
+												},
+											});
+										}}
+									>
+										<Trash2Icon />
+										Delete
+									</DropdownMenuItem>
 								</DropdownMenuContent>
 							</DropdownMenu>
 						</SidebarMenuItem>

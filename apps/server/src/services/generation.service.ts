@@ -3,6 +3,7 @@
 // VideoGenerationWorkflow's steps need; the workflow file owns only
 // orchestration (step sequencing, retries, wait/poll) — see
 // workflows/video-generation.ts.
+import { transcribeSpeech } from "@video-platform-challenge/ai";
 import * as promptBuilders from "@video-platform-challenge/ai/prompts/prompt-builders";
 import { compileStyleBible } from "@video-platform-challenge/ai/prompts/style-bible";
 import type { UserScopedTx } from "@video-platform-challenge/db";
@@ -27,6 +28,7 @@ import type {
 	ProjectPlanCinematography,
 	ProjectPlanKeyframe,
 	ProjectPlanLocation,
+	SpeechCue,
 	TimelineEntry,
 } from "@video-platform-challenge/types";
 import {
@@ -45,6 +47,8 @@ import {
 } from "../lib/extension-plan-merge";
 import { formatFailReason } from "../lib/fail-reason";
 import { classifyIngestFailure } from "../lib/ingest-failure";
+import { resolveKieCallbackUrl } from "../lib/kie-callback";
+import { extractLastFrame } from "../lib/media-ops";
 import { notifyProjectEvent } from "../lib/notify-project-event";
 import { normalizeProjectPlan } from "../lib/plan-compat";
 import { buildAssetR2Key, DEFAULT_CONTENT_TYPE_BY_KIND } from "../lib/r2-keys";
@@ -70,12 +74,17 @@ async function paced<T>(fn: () => Promise<T>): Promise<T> {
 	return fn();
 }
 
-// No callBackUrl is ever passed to a kie.ai createTask call in this file
-// (amendment: no callback mechanism — the challenge kie.ai API key has no
-// webhook/callback access configured). Every task's `callBackUrl` param
-// stays optional in packages/kie for a future key that does have it;
-// completion is discovered exclusively by polling —
-// workflows/video-generation.ts's `waitForKieTask`.
+// `callBackUrl` is now env-gated (lib/kie-callback.ts's
+// `resolveKieCallbackUrl`): every kie.ai createTask call below passes it, but
+// it only resolves to a real URL when `BETTER_AUTH_URL` is a public http(s)
+// origin (never localhost) — deployed, kie.ai's callback hits
+// `/webhooks/kie` (generation-webhook.service.ts) and nudges the owning
+// workflow instance via `sendEvent`. On local dev it resolves to `undefined`
+// and createTask omits `callBackUrl` entirely — identical to the old
+// no-callback behavior. Either way, completion is still discovered
+// exclusively by polling — workflows/video-generation.ts's `waitForKieTask`
+// never waits on the callback event; see that file's `// TODO` on full
+// event-driven waiting. The callback is additive only, never a replacement.
 async function startWorkflow(
 	params: VideoGenerationWorkflowParams,
 ): Promise<string> {
@@ -216,7 +225,7 @@ export async function retryScene(
  * Deliberately a no-op (docs phase 3b-2 design anchor 6). R1 assembly is
  * entirely browser-driven (Mediabunny remux): version.service.ts already
  * persisted the version row as `rendering` before calling this. The browser
- * fetches clip URLs via `assets.getDownloadUrl`, uploads the finished MP4
+ * fetches clip URLs via `assets.getProjectUrls`, uploads the finished MP4
  * via the new `assets.createUpload`, then calls `versions.markRendered` to
  * complete the flow — no server-side workflow is involved for R1. The
  * canonical ffmpeg/Containers renderer (R2 milestone, docs §5) is future
@@ -882,6 +891,7 @@ export async function createCharacterSheetTask(args: {
 				args.character,
 			),
 			aspectRatio: args.aspectRatio,
+			callBackUrl: resolveKieCallbackUrl(),
 		}),
 	);
 
@@ -925,6 +935,7 @@ export async function createLocationSheetTask(args: {
 				args.lightingRule,
 			),
 			aspectRatio: args.aspectRatio,
+			callBackUrl: resolveKieCallbackUrl(),
 		}),
 	);
 
@@ -1164,6 +1175,7 @@ export async function createKeyframeTask(args: {
 			prompt: args.prompt,
 			aspectRatio: args.aspectRatio,
 			inputUrls: args.inputUrls,
+			callBackUrl: resolveKieCallbackUrl(),
 		}),
 	);
 
@@ -1311,7 +1323,15 @@ export async function createSceneVideoTask(args: {
 	styleBible: string;
 	cinematography: ProjectPlanCinematography;
 	firstFrameUrl: string;
-	lastFrameUrl: string;
+	/**
+	 * Optional (docs last-frame-chaining.md Feature 1): callers no longer pass
+	 * this — `firstFrameUrl` alone (the chained real last frame) drives
+	 * seedance, so it animates ONE natural action instead of converging on a
+	 * second fixed endpoint. Kept optional rather than removed so
+	 * packages/kie's `lastFrameUrl?` stays reachable if a future caller wants
+	 * fenced generation again.
+	 */
+	lastFrameUrl?: string;
 	aspectRatio: AspectRatio;
 	stepKey?: string;
 }): Promise<CreatedTask> {
@@ -1334,6 +1354,7 @@ export async function createSceneVideoTask(args: {
 			aspectRatio: args.aspectRatio,
 			durationSeconds: args.scene.durationSeconds,
 			generateAudio: true,
+			callBackUrl: resolveKieCallbackUrl(),
 		}),
 	);
 
@@ -1434,6 +1455,170 @@ export async function ingestSceneVideo(args: {
 	}
 
 	return asset;
+}
+
+/**
+ * Feature 1 (docs/last-frame-chaining.md, docs/media-ops-container.md
+ * §Feature 1): extracts an already-ingested scene video's REAL last frame
+ * via the media-ops ffmpeg container and stores it as a fresh READY
+ * `keyframe` asset — the pixel anchor the NEXT scene's video chains its
+ * first frame from, instead of the clean-but-static boundary keyframe.
+ * `source` stays null (mirrors R1 `render` assets — see `assets.source`'s
+ * doc comment in packages/db/src/schema/asset.ts): this asset has no owning
+ * generation_tasks row, it's derived from an already-ingested one.
+ *
+ * Best-effort by design, never throws: any failure (unsigned/missing video
+ * URL, media-ops container/ffmpeg error, R2 write failure, project vanished
+ * mid-flight) is caught here and this returns null — callers fall back to
+ * the scene's own start keyframe (workflows/video-generation.ts's
+ * `generateSceneVideo`), so a media-ops hiccup degrades chaining quality
+ * without ever failing an already-successful scene's video.
+ */
+export async function extractAndStoreLastFrame(args: {
+	userId: string;
+	projectId: string;
+	sceneId: string;
+	videoAssetId: string;
+}): Promise<string | null> {
+	try {
+		const videoUrl = await resolveAssetDownloadUrl(
+			args.userId,
+			args.videoAssetId,
+		);
+		if (!videoUrl) {
+			return null;
+		}
+
+		const frameBytes = await extractLastFrame(videoUrl);
+		const contentType = "image/jpeg";
+		const key = buildAssetR2Key({
+			userId: args.userId,
+			projectId: args.projectId,
+			kind: AssetKind.KEYFRAME,
+			contentType,
+		});
+		const put = await putObject({
+			key,
+			body: frameBytes,
+			contentType,
+			contentLength: frameBytes.byteLength,
+		});
+
+		return await withUser(db, args.userId, async (tx) => {
+			const project = await projectStillExists(tx, args.userId, args.projectId);
+			if (!project) {
+				return null;
+			}
+			const asset = await assetRepository.insertAsset(tx, {
+				projectId: args.projectId,
+				userId: args.userId,
+				kind: AssetKind.KEYFRAME,
+				status: AssetStatus.READY,
+				r2Key: put.key,
+				contentType,
+				size: put.size,
+				source: null,
+			});
+			return asset.id;
+		});
+	} catch (error) {
+		console.error(
+			`[generation.service] extractAndStoreLastFrame failed (scene=${args.sceneId})`,
+			error,
+		);
+		return null;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Feature 2 — subtitle STT sync (docs media-ops-container.md §Feature 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Feature 2 (docs media-ops-container.md, last-frame-chaining.md):
+ * transcribes an already-ingested scene video via the AI Gateway's
+ * `openai/whisper-1` (packages/ai's `transcribeSpeech`) and persists the
+ * resulting REAL, speech-timed cues on the scene — so on-screen subtitles sit
+ * exactly over the actual spoken audio instead of the word-count estimate
+ * (`apps/web`'s `buildSubtitleCues`). Swapped in for kie's
+ * `elevenlabs/speech-to-text`, which is 401 UNAUTHORIZED for this account's
+ * key (verified against the live API, same failure mode as the ElevenLabs TTS
+ * removed earlier). Whisper accepts the scene's mp4 directly — the audio
+ * track is extracted provider-side — so this no longer needs `extractAudio`'s
+ * media-ops/ffmpeg round trip or an intermediate mp3 R2 upload; Seedance
+ * clips run ≤~4MB, well under whisper's 25MB input limit.
+ *
+ * Best-effort by design, never throws — mirrors `extractAndStoreLastFrame`'s
+ * own contract exactly: any failure (unsigned/missing video URL, fetch/
+ * transcription error, R2 write failure, project/scene vanished mid-flight)
+ * is caught here and this returns `null`. The scene keeps its
+ * already-successful `video_ready` status and simply falls back to the
+ * estimate — a transcription hiccup never fails an already-successful
+ * scene's video.
+ *
+ * Skips transcription entirely (returns `null` without ever calling the
+ * gateway) when the scene has no `dialogue` or no `subtitleText` — Seedance
+ * only speaks `dialogue` natively (docs studio-fixes-backlog.md), so a scene
+ * without it has no speech to transcribe, and a scene without `subtitleText`
+ * has nothing to caption regardless of how good the STT timing would be.
+ */
+export async function extractAndStoreSceneSubtitles(args: {
+	userId: string;
+	projectId: string;
+	sceneId: string;
+	videoAssetId: string;
+}): Promise<SpeechCue[] | null> {
+	try {
+		const scene = await loadScene(args.userId, args.sceneId);
+		if (!scene?.dialogue?.trim() || !scene?.subtitleText?.trim()) {
+			return null;
+		}
+
+		const videoUrl = await resolveAssetDownloadUrl(
+			args.userId,
+			args.videoAssetId,
+		);
+		if (!videoUrl) {
+			return null;
+		}
+
+		const response = await fetch(videoUrl);
+		if (!response.ok) {
+			throw new Error(
+				`Failed to fetch scene video for transcription (HTTP ${response.status})`,
+			);
+		}
+		const videoBytes = new Uint8Array(await response.arrayBuffer());
+
+		const speechCues = await transcribeSpeech(videoBytes);
+		if (speechCues.length === 0) {
+			return null;
+		}
+
+		return await withUser(db, args.userId, async (tx) => {
+			const stillExists = await projectStillExists(
+				tx,
+				args.userId,
+				args.projectId,
+			);
+			if (!stillExists) {
+				return null;
+			}
+			const row = await sceneRepository.updateById(
+				tx,
+				args.userId,
+				args.sceneId,
+				{ speechCues },
+			);
+			return row ? speechCues : null;
+		});
+	} catch (error) {
+		console.error(
+			`[generation.service] extractAndStoreSceneSubtitles failed (scene=${args.sceneId})`,
+			error,
+		);
+		return null;
+	}
 }
 
 // ---------------------------------------------------------------------------

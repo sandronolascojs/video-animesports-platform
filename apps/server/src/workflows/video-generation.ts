@@ -92,15 +92,24 @@ async function kieStep<T extends Rpc.Serializable<T>>(
 }
 
 // ---------------------------------------------------------------------------
-// Poll budgets — no callback mechanism (amendment: the challenge kie.ai API
-// key has no webhook/callback access configured; confirmed, not assumed).
-// Every kie.ai task's completion is discovered by polling `getTask`, full
-// stop, for every task kind in every workflow mode. The `/webhooks/kie`
-// route, its HMAC verification (packages/kie/src/webhook.ts), and
-// generation-webhook.service.ts all stay in the codebase — wired, tested,
-// dormant — for a future key that DOES have callback access (see the
-// route's own doc comment in src/index.ts). Nothing in this file calls or
-// waits on them anymore.
+// Poll budgets — `callBackUrl` is now env-gated (generation.service.ts's
+// `resolveKieCallbackUrl`, apps/server/src/lib/kie-callback.ts): when this
+// server runs at a public http(s) origin, kie.ai's callback lands on
+// `/webhooks/kie` (src/index.ts) -> generation-webhook.service.ts's
+// `handleKieWebhook`, which verifies the HMAC and calls `sendEvent` on the
+// owning workflow instance. But every kie.ai task's completion is STILL
+// discovered exclusively by polling `getTask` below, for every task kind in
+// every workflow mode — this file never calls `step.waitForEvent`, so the
+// webhook's `sendEvent` is currently a no-op trigger nothing here listens
+// for. That's intentional (kie.ai's own docs: "callbacks are a trigger only;
+// always re-fetch recordInfo"), not a bug: polling stays the single source of
+// truth so a callback that never arrives (local dev, a dropped delivery)
+// never blocks a run.
+// TODO: once callback delivery is validated in production, thread
+// `step.waitForEvent` into `waitForKieTask` (racing it against the existing
+// backoff loop) so a real deployment resolves in one round trip instead of
+// waiting out the poll cadence — a genuine event-driven optimization, not
+// required for correctness today.
 // ---------------------------------------------------------------------------
 
 interface PollBudget {
@@ -350,9 +359,13 @@ async function generateAndAttachKeyframe(
  * (or mark-failed) sequence, previously duplicated 4x — once per kind
  * (character/location) x once per mode (project-generation's main sheet
  * loops, scene-extension's "only if sheetAssetId is still null" blocks).
- * Mirrors `generateAndAttachKeyframe`'s shape: swallow failures internally
- * (a missing sheet degrades keyframe quality rather than blocking
- * generation, docs §2) so callers can simply `await` this in a loop.
+ * A sheet is a GLOBAL style anchor (docs §2 pixel-anchor mechanism): a failed
+ * one yields off-model keyframes for the ENTIRE episode, so a failure here
+ * (kie timeout, a fail-state result, an ingest error) is NOT swallowed — it
+ * throws so `run`'s catch marks the whole project failed. The project RETRY
+ * (`projects.retry`) then RESUMES this mode, reusing the sheets that DID
+ * succeed (skipped by `sheetAssetId`) and only regenerating the missing one —
+ * and kie image failures are usually transient, so the retry gets past them.
  * `stepSuffix` must be unique per call site within one workflow run (the
  * project-generation loops pass the character name / location key; the
  * extension blocks prefix with `ext-`) — kept as a caller-supplied string
@@ -442,25 +455,44 @@ async function generateAndIngestSheet(
 						record.failMsg,
 					),
 			);
+			throw new NonRetryableError(
+				`${target.kind} sheet "${label}" failed: ${record.failMsg ?? record.failCode ?? "no result URL"}`,
+			);
 		}
 	} catch (error) {
 		console.error(
 			`[VideoGenerationWorkflow] ${target.kind} sheet failed: ${label}`,
 			error,
 		);
+		// Do NOT swallow: a sheet is a global style anchor, so its failure fails
+		// the whole generation via `run`'s catch (marks the project failed). The
+		// project retry resumes and reuses the sheets that succeeded.
+		throw error;
 	}
 }
 
 /**
- * Generates + ingests a scene's video from its (already-attached) fencing
- * keyframes. Seedance speaks the scene's dialogue itself — every video call
- * passes `generate_audio: true`, and the prompt (`promptBuilders.
- * buildSceneVideoPrompt`) carries the "speaks these exact words aloud"
- * clause whenever the scene has dialogue (docs
+ * Generates + ingests a scene's video, then (Feature 1, docs
+ * last-frame-chaining.md) best-effort extracts its REAL last frame for the
+ * next scene to chain from. Seedance speaks the scene's dialogue itself —
+ * every video call passes `generate_audio: true`, and the prompt
+ * (`promptBuilders.buildSceneVideoPrompt`) carries the "speaks these exact
+ * words aloud" clause whenever the scene has dialogue (docs
  * studio-fixes-backlog.md) — no separate TTS task, no reference-audio
  * signing/ingest step.
  *
- * Video failure IS fatal to the scene.
+ * `firstFrameUrl` is resolved from `chainedFirstFrameAssetId` when present —
+ * the previous scene's real extracted last frame — falling back to this
+ * scene's own `startKeyframeAssetId` for scene 1 or whenever the previous
+ * scene's extraction failed/was skipped. No `lastFrameUrl` is ever resolved
+ * or passed anymore: dropping the forced second endpoint lets seedance
+ * animate one natural action from the (real, chained) first frame instead of
+ * converging on a static boundary keyframe (docs §"why we do NOT extract the
+ * real last frame" is superseded by media-ops-container.md's Feature 1).
+ *
+ * Video failure IS fatal to the scene; a failed/skipped last-frame
+ * extraction is NOT — it only degrades the next scene's chaining quality
+ * (see `extractedLastFrameAssetId: null` below and its caller).
  */
 async function generateSceneVideo(
 	step: WorkflowStep,
@@ -472,27 +504,28 @@ async function generateSceneVideo(
 		styleBible: string;
 		cinematography: ProjectPlanCinematography;
 		aspectRatio: AspectRatio;
+		/** The previous scene's real extracted last-frame asset id, or null
+		 * (scene 1 / extraction unavailable) — falls back to
+		 * `scene.startKeyframeAssetId` below. */
+		chainedFirstFrameAssetId: string | null;
 	},
-): Promise<{ succeeded: boolean }> {
+): Promise<{ succeeded: boolean; extractedLastFrameAssetId: string | null }> {
 	try {
+		const firstFrameAssetId =
+			args.chainedFirstFrameAssetId ?? args.scene.startKeyframeAssetId;
+		if (!firstFrameAssetId) {
+			throw new Error("Could not resolve a first-frame asset id");
+		}
 		const firstFrameUrl = await step.do(
-			`sign-start-keyframe-${args.scene.id}`,
+			`sign-first-frame-${args.scene.id}`,
 			() =>
 				generationService.resolveAssetDownloadUrl(
 					args.userId,
-					args.scene.startKeyframeAssetId as string,
+					firstFrameAssetId,
 				),
 		);
-		const lastFrameUrl = await step.do(
-			`sign-end-keyframe-${args.scene.id}`,
-			() =>
-				generationService.resolveAssetDownloadUrl(
-					args.userId,
-					args.scene.endKeyframeAssetId as string,
-				),
-		);
-		if (!firstFrameUrl || !lastFrameUrl) {
-			throw new Error("Could not resolve keyframe download URLs");
+		if (!firstFrameUrl) {
+			throw new Error("Could not resolve first-frame download URL");
 		}
 
 		const { taskId, generationTaskId } = await kieStep(
@@ -507,7 +540,6 @@ async function generateSceneVideo(
 					styleBible: args.styleBible,
 					cinematography: args.cinematography,
 					firstFrameUrl,
-					lastFrameUrl,
 					aspectRatio: args.aspectRatio,
 					stepKey: `${args.workflowInstanceId}:create-video-${args.scene.id}`,
 				}),
@@ -548,9 +580,9 @@ async function generateSceneVideo(
 					),
 				),
 			);
-			return { succeeded: false };
+			return { succeeded: false, extractedLastFrameAssetId: null };
 		}
-		await step.do(`ingest-video-${args.scene.id}`, () =>
+		const videoAsset = await step.do(`ingest-video-${args.scene.id}`, () =>
 			generationService.ingestSceneVideo({
 				userId: args.userId,
 				projectId: args.projectId,
@@ -559,6 +591,37 @@ async function generateSceneVideo(
 				resultUrl: url,
 			}),
 		);
+		// Feature 1: best-effort — never throws (generation.service.ts's doc
+		// comment) — so a media-ops hiccup only degrades the NEXT scene's
+		// chaining quality, never fails this already-successful scene.
+		const extractedLastFrameAssetId = videoAsset
+			? await step.do(`extract-last-frame-${args.scene.id}`, () =>
+					generationService.extractAndStoreLastFrame({
+						userId: args.userId,
+						projectId: args.projectId,
+						sceneId: args.scene.id,
+						videoAssetId: videoAsset.id,
+					}),
+				)
+			: null;
+		// Feature 2 (docs media-ops-container.md §Feature 2): best-effort — never
+		// throws (generation.service.ts's `extractAndStoreSceneSubtitles` doc
+		// comment) — a media-ops/kie STT hiccup only leaves this scene on the
+		// word-count subtitle estimate, never fails this already-successful
+		// scene. Runs for every mode this shared function serves
+		// (project-generation, scene-extension, scene-retry — see this
+		// function's own doc comment for the three call sites).
+		if (videoAsset) {
+			await step.do(`extract-subtitles-${args.scene.id}`, () =>
+				generationService.extractAndStoreSceneSubtitles({
+					userId: args.userId,
+					projectId: args.projectId,
+					sceneId: args.scene.id,
+					videoAssetId: videoAsset.id,
+				}),
+			);
+		}
+		return { succeeded: true, extractedLastFrameAssetId };
 	} catch (error) {
 		console.error(
 			`[VideoGenerationWorkflow] scene video failed: ${args.scene.id}`,
@@ -571,10 +634,8 @@ async function generateSceneVideo(
 				"Video generation failed.",
 			),
 		);
-		return { succeeded: false };
+		return { succeeded: false, extractedLastFrameAssetId: null };
 	}
-
-	return { succeeded: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -587,20 +648,39 @@ async function runProjectGenerationMode(
 ): Promise<WorkflowResult> {
 	const { userId, projectId, workflowInstanceId } = ctx;
 
-	// Fix-pass W5: `draft` -> `planning` the moment this mode's plan step
-	// actually starts — the agent call below takes ~1-2 min with nothing else
-	// to show for it otherwise.
-	await step.do("mark-planning", () =>
-		generationService.markProjectPlanning(userId, projectId),
+	// Resume-aware start: on a project RETRY the plan already exists — reuse it
+	// (and its per-scene metadata + `sheetAssetId` checkpoint) instead of
+	// re-planning. `runPlanStep` ALWAYS mints a fresh story and resets every
+	// `sheetAssetId` to null, which would destroy the checkpoint this whole
+	// resume path depends on. A first run (no plan yet) plans as before
+	// (Fix-pass W5: `draft` -> `planning` the moment the ~1-2 min agent call
+	// starts, with nothing else to show for it otherwise).
+	const loadedProject = await step.do("load-project", () =>
+		generationService.loadProject(userId, projectId),
 	);
-
-	const planResult = await step.do("plan", () =>
-		generationService.runPlanStep(userId, projectId),
-	);
-	if (!planResult) {
+	if (!loadedProject) {
 		return { status: "aborted", reason: "project-not-found" };
 	}
-	const { project, scenes } = planResult;
+
+	let project = loadedProject;
+	let scenes: SceneRow[];
+	if (loadedProject.plan) {
+		scenes = await step.do("load-scenes-resume", () =>
+			generationService.loadScenes(userId, projectId),
+		);
+	} else {
+		await step.do("mark-planning", () =>
+			generationService.markProjectPlanning(userId, projectId),
+		);
+		const planResult = await step.do("plan", () =>
+			generationService.runPlanStep(userId, projectId),
+		);
+		if (!planResult) {
+			return { status: "aborted", reason: "project-not-found" };
+		}
+		project = planResult.project;
+		scenes = planResult.scenes;
+	}
 	if (!project.plan) {
 		throw new NonRetryableError(
 			"Plan step completed without persisting a plan",
@@ -608,10 +688,11 @@ async function runProjectGenerationMode(
 	}
 	const styleBible = normalizeStyleBible(project.styleBible);
 	const aspectRatio = project.aspectRatio;
-	// `project.plan` is freshly generated by the plan step above THIS run —
-	// always fully structured (storyPlanSchema's zod bounds guarantee it), so
-	// no lib/plan-compat.ts normalization pass is needed here (unlike
-	// scene-retry mode, which can read an older project's plan).
+	// `project.plan` here was written by `runPlanStep` — either fresh this run
+	// or reused on a resume/retry — so it's always fully structured
+	// (storyPlanSchema's zod bounds guarantee it), and no lib/plan-compat.ts
+	// normalization pass is needed here (unlike scene-retry mode, which can
+	// read an older project's plan).
 	const lightingRule = project.plan.styleBibleSpec.lighting;
 
 	// Fix-pass W5: `runPlanStep` itself persisted `storyboard` (plan visible,
@@ -621,13 +702,18 @@ async function runProjectGenerationMode(
 		generationService.markProjectGenerating(userId, projectId),
 	);
 
-	// ---- sheets: one text-to-image call per character/location. Missing
-	// sheets degrade keyframe quality (buildKeyframeInputUrls skips absent
-	// refs) rather than blocking generation — see that function's doc
-	// comment (docs §2 pixel-anchor mechanism is a quality lever, not a hard
-	// gate on feasibility). Fix-pass W9a: both loops delegate to
+	// ---- sheets: one text-to-image call per character/location. A sheet is a
+	// GLOBAL style anchor — a FAILED one fails the whole generation
+	// (`generateAndIngestSheet` throws, `run`'s catch marks the project failed),
+	// because a missing anchor renders the whole episode off-model. RESUME: a
+	// character/location whose `sheetAssetId` is already set (a prior run
+	// succeeded, or the project RETRY reused the plan) is skipped — only the
+	// missing sheets regenerate. Fix-pass W9a: both loops delegate to
 	// `generateAndIngestSheet` (previously ~45 duplicated lines each).
 	for (const character of project.plan.characters) {
+		if (character.sheetAssetId) {
+			continue;
+		}
 		await generateAndIngestSheet(step, {
 			userId,
 			projectId,
@@ -641,6 +727,9 @@ async function runProjectGenerationMode(
 	}
 
 	for (const location of project.plan.locations) {
+		if (location.sheetAssetId) {
+			continue;
+		}
 		await generateAndIngestSheet(step, {
 			userId,
 			projectId,
@@ -686,6 +775,19 @@ async function runProjectGenerationMode(
 		// the LLM-authored chain entry itself.
 		const keyframe = plan.keyframes[index - 1];
 		if (!keyframe) {
+			continue;
+		}
+
+		// RESUME: keyframe K_index is shared as the START of scene `index` and
+		// the END of scene `index-1`; if it's already attached from a prior run
+		// (a project RETRY re-runs this whole loop), reuse it as the chain
+		// reference and skip regeneration — only the missing K_i regenerate.
+		const existingKeyframeAssetId =
+			index <= sceneCount
+				? orderedScenes[index - 1]?.startKeyframeAssetId
+				: orderedScenes[sceneCount - 1]?.endKeyframeAssetId;
+		if (existingKeyframeAssetId) {
+			previousKeyframeAssetId = existingKeyframeAssetId;
 			continue;
 		}
 
@@ -827,59 +929,69 @@ async function runProjectGenerationMode(
 		);
 	}
 
-	// ---- videos, per scene (skip scenes already failed above). Concurrent —
-	// unlike the keyframe chain above, each scene's video is independent once
-	// its own start/end keyframes are attached, so there is no ordering
-	// constraint left to preserve here. Every step.do name below is already
-	// suffixed with `scene.id` (reload/mark-failed) or derived from a
-	// per-scene kie taskId (inside `generateSceneVideo`), so running them
-	// concurrently via Promise.allSettled cannot collide on step names.
-	// `generateSceneVideo` already isolates a single scene's failure — it
-	// catches its own errors, marks THAT scene failed, and resolves (never
-	// rejects) — so Promise.allSettled (rather than Promise.all) is a second,
-	// defensive layer: even if a mark-failed step itself somehow exhausted
-	// retries and rejected, that must still not abort sibling scenes' videos
-	// or skip the `finalize` step below, matching the sequential loop's
-	// original behavior of always reaching `finalize` regardless of
-	// individual scene outcomes. kie.ai createTask calls made concurrently
-	// here queue through the shared `kieRateLimiter` token bucket in
-	// generation.service.ts (20/10s) — unchanged, just naturally paced.
-	const videoPhaseResults = await Promise.allSettled(
-		orderedScenes
-			.filter((scene) => !failedSceneIds.has(scene.id))
-			.map(async (scene) => {
-				const fresh = await step.do(`reload-scene-${scene.id}`, () =>
-					generationService.loadScene(userId, scene.id),
-				);
-				if (!fresh?.startKeyframeAssetId || !fresh.endKeyframeAssetId) {
-					await step.do(`mark-scene-failed-missing-kf-${scene.id}`, () =>
-						generationService.markSceneFailed(
-							userId,
-							scene.id,
-							"Missing keyframe anchor(s).",
-						),
-					);
-					return;
-				}
-
-				await generateSceneVideo(step, {
-					userId,
-					projectId,
-					workflowInstanceId,
-					scene: fresh,
-					styleBible,
-					cinematography: resolveCinematography(plan, scene.id, scene.prompt),
-					aspectRatio,
-				});
-			}),
-	);
-	for (const result of videoPhaseResults) {
-		if (result.status === "rejected") {
-			console.error(
-				"[VideoGenerationWorkflow] scene video phase task rejected unexpectedly",
-				result.reason,
-			);
+	// ---- videos, per scene (skip scenes already failed above). SEQUENTIAL —
+	// changed from the previous concurrent Promise.allSettled phase (docs
+	// last-frame-chaining.md Feature 1): scene i's video needs scene i-1's
+	// REAL extracted last frame as its own first frame, so scene i-1's video
+	// must finish (and be extracted) before scene i's video can even be
+	// created. `chainedFirstFrameAssetId` threads that hand-off across
+	// iterations — null for scene 1, or whenever the previous scene's video
+	// failed or its extraction did (generateSceneVideo falls back to that
+	// scene's own start keyframe in either case, so the chain degrades
+	// gracefully rather than breaking). Tradeoff (owner call): this trades
+	// away the previous phase's per-scene parallelism for clip-to-clip
+	// coherence — a full generation run is now slower (kie.ai createTask
+	// calls can no longer overlap across scenes), but every clip starts from
+	// pixels that actually existed at the end of the one before it, instead
+	// of a shared clean boundary keyframe.
+	let chainedFirstFrameAssetId: string | null = null;
+	for (const scene of orderedScenes) {
+		if (failedSceneIds.has(scene.id)) {
+			continue;
 		}
+
+		const fresh = await step.do(`reload-scene-${scene.id}`, () =>
+			generationService.loadScene(userId, scene.id),
+		);
+		if (!fresh?.startKeyframeAssetId || !fresh.endKeyframeAssetId) {
+			await step.do(`mark-scene-failed-missing-kf-${scene.id}`, () =>
+				generationService.markSceneFailed(
+					userId,
+					scene.id,
+					"Missing keyframe anchor(s).",
+				),
+			);
+			chainedFirstFrameAssetId = null;
+			continue;
+		}
+
+		// RESUME: this scene's video already generated on a prior run — extract
+		// its real last frame for the NEXT scene's chain and skip regeneration.
+		if (fresh.videoAssetId) {
+			chainedFirstFrameAssetId = await step.do(
+				`resume-extract-last-frame-${scene.id}`,
+				() =>
+					generationService.extractAndStoreLastFrame({
+						userId,
+						projectId,
+						sceneId: scene.id,
+						videoAssetId: fresh.videoAssetId as string,
+					}),
+			);
+			continue;
+		}
+
+		const result = await generateSceneVideo(step, {
+			userId,
+			projectId,
+			workflowInstanceId,
+			scene: fresh,
+			styleBible,
+			cinematography: resolveCinematography(plan, scene.id, scene.prompt),
+			aspectRatio,
+			chainedFirstFrameAssetId,
+		});
+		chainedFirstFrameAssetId = result.extractedLastFrameAssetId;
 	}
 
 	await step.do("finalize", () =>
@@ -1074,6 +1186,24 @@ async function runSingleSceneExtension(
 		return { status: "aborted", reason: "scene-not-found" };
 	}
 
+	// Feature 1 (docs last-frame-chaining.md), best-effort: extension runs in
+	// its own later workflow instance, so there's no in-memory chain to carry
+	// over from the original generation run — extract the PREVIOUS scene's
+	// real last frame fresh, from its already-ingested video, right here.
+	// `generateSceneVideo` falls back to `freshScene.startKeyframeAssetId`
+	// (the reused boundary keyframe attached above) when the previous scene
+	// has no video yet or extraction fails.
+	const extChainedFirstFrameAssetId = previousScene.videoAssetId
+		? await step.do(`extract-ext-chain-frame-${sceneId}`, () =>
+				generationService.extractAndStoreLastFrame({
+					userId,
+					projectId,
+					sceneId: previousScene.id,
+					videoAssetId: previousScene.videoAssetId as string,
+				}),
+			)
+		: null;
+
 	await generateSceneVideo(step, {
 		userId,
 		projectId,
@@ -1082,6 +1212,7 @@ async function runSingleSceneExtension(
 		styleBible,
 		cinematography: resolveCinematography(plan, sceneId, freshScene.prompt),
 		aspectRatio,
+		chainedFirstFrameAssetId: extChainedFirstFrameAssetId,
 	});
 
 	return { status: "done" };
@@ -1344,6 +1475,26 @@ async function runSceneRetryMode(
 		return { status: "aborted", reason: "scene-not-found" };
 	}
 
+	// Feature 1 (docs last-frame-chaining.md), best-effort: same as the
+	// extension mode above — a retry runs in its own later workflow instance,
+	// so re-extract the PREVIOUS scene's real last frame fresh from its
+	// already-ingested video rather than relying on any in-memory state from
+	// the original run. Falls back to `freshScene.startKeyframeAssetId`
+	// inside `generateSceneVideo` when there's no previous scene, it has no
+	// video yet, or extraction fails.
+	const retryPreviousScene =
+		sceneIndex > 0 ? orderedScenes[sceneIndex - 1] : undefined;
+	const retryChainedFirstFrameAssetId = retryPreviousScene?.videoAssetId
+		? await step.do("retry-extract-chain-frame", () =>
+				generationService.extractAndStoreLastFrame({
+					userId,
+					projectId,
+					sceneId: retryPreviousScene.id,
+					videoAssetId: retryPreviousScene.videoAssetId as string,
+				}),
+			)
+		: null;
+
 	await generateSceneVideo(step, {
 		userId,
 		projectId,
@@ -1352,6 +1503,7 @@ async function runSceneRetryMode(
 		styleBible,
 		cinematography: sceneMeta.cinematography,
 		aspectRatio,
+		chainedFirstFrameAssetId: retryChainedFirstFrameAssetId,
 	});
 
 	await step.do("finalize-retry", () =>

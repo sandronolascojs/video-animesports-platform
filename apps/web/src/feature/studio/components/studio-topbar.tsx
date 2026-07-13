@@ -1,10 +1,10 @@
 "use client";
 
 import { ProjectStatus, SceneStatus } from "@video-platform-challenge/types";
-import { AlertTriangleIcon, ArrowLeftIcon } from "lucide-react";
+import { AlertTriangleIcon, ArrowLeftIcon, RotateCcwIcon } from "lucide-react";
 import Link from "next/link";
 
-import { MainButton } from "@/components/kit/main-button";
+import { MainButton } from "@/components/app/main-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -13,9 +13,13 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { isProjectActive } from "@/feature/studio/hooks/http/use-project";
+import {
+	isProjectActive,
+	useRetryProject,
+} from "@/feature/studio/hooks/http/use-project";
 import { useRenderExport } from "@/feature/studio/hooks/use-render-export";
 import { useStudio } from "@/feature/studio/stores/use-studio";
+import { toast } from "@/libs/toast";
 import { cn } from "@/libs/utils";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -48,10 +52,12 @@ const STATUS_LABEL: Record<string, string> = {
 export function StudioTopbar() {
 	const { project, orderedScenes } = useStudio();
 	const { canRender, isRunning, start } = useRenderExport();
+	const retryProject = useRetryProject(project.id);
 
 	const hasFailedScene = orderedScenes.some(
 		({ scene }) => scene.status === SceneStatus.FAILED,
 	);
+	const canRetry = project.status === ProjectStatus.FAILED || hasFailedScene;
 	const isActive = isProjectActive(project);
 	const statusVariant =
 		project.status === ProjectStatus.FAILED
@@ -97,9 +103,36 @@ export function StudioTopbar() {
 					{statusLabel}
 				</Badge>
 
+				{canRetry ? (
+					<Button
+						type="button"
+						size="sm"
+						variant="outline"
+						className="gap-1.5"
+						disabled={retryProject.isPending}
+						onClick={() => {
+							retryProject.mutate(
+								{ id: project.id },
+								{
+									onSuccess: () => {
+										toast.info({
+											title: "Retrying generation",
+											description: "Picking up from where it left off.",
+											icon: <RotateCcwIcon className="size-4" />,
+										});
+									},
+								},
+							);
+						}}
+					>
+						<RotateCcwIcon className="size-3.5" />
+						Retry
+					</Button>
+				) : null}
+
 				<Tooltip>
 					<TooltipTrigger asChild>
-						<span>
+						<span className="inline-flex">
 							<MainButton
 								type="button"
 								size="sm"

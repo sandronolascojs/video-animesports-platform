@@ -12,6 +12,24 @@ export type TimelineEntry = {
 	durationSeconds: number;
 };
 
+/**
+ * One real, speech-timed subtitle cue — `scenes.speech_cues` (docs
+ * media-ops-container.md Feature 2). Populated best-effort by the server's
+ * kie Scribe STT step (`generation.service.ts::extractAndStoreSceneSubtitles`)
+ * from the scene's ACTUAL spoken audio, grouping ElevenLabs Scribe's
+ * word-level timestamps into short, readable chunks — as opposed to
+ * `apps/web`'s `buildSubtitleCues`, which only ever ESTIMATES cue timing from
+ * word count when no `SpeechCue[]` exists yet for a scene. Structurally
+ * identical to the web-only `SubtitleCue` type (`feature/studio/lib/
+ * subtitle-cues.ts`) by design — real and estimated cues are interchangeable
+ * to every consumer (Player, export burn-in).
+ */
+export type SpeechCue = {
+	text: string;
+	startSeconds: number;
+	endSeconds: number;
+};
+
 export type SubtitleStyle = {
 	font?: string;
 	fontSize?: number;

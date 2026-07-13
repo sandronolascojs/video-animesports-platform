@@ -1,4 +1,4 @@
-import { AppLogo } from "@/components/kit/app-logo";
+import { AppLogo } from "@/components/app/app-logo";
 import { AuthPanel } from "@/feature/auth/components/auth-panel";
 import { AuthView } from "@/feature/auth/views/auth-view";
 

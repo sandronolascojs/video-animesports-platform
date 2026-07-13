@@ -25,11 +25,11 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useAssetUrl } from "@/feature/studio/hooks/http/use-asset-url";
 import {
 	isProjectActive,
 	useExtendProject,
 } from "@/feature/studio/hooks/http/use-project";
+import { useAssetUrl } from "@/feature/studio/hooks/http/use-project-asset-urls";
 import {
 	useRemoveScene,
 	useRetryScene,

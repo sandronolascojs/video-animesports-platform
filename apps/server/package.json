@@ -19,6 +19,7 @@
 	"dependencies": {
 		"@ai-sdk/provider": "catalog:",
 		"@ai-sdk/provider-utils": "catalog:",
+		"@cloudflare/containers": "^0.3.7",
 		"@orpc/openapi": "catalog:",
 		"@orpc/server": "catalog:",
 		"@orpc/zod": "catalog:",

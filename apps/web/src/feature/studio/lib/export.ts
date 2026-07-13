@@ -1,12 +1,15 @@
 // RT-1 (docs realtime-and-render-lock-v1.md §3, "current-language only"):
 // export intentionally burns each scene's single `subtitleText` exactly as
-// authored — the project's `subtitleLanguage` at generation time — into
-// every frame via `drawSubtitle` below. There is deliberately no
+// authored — the project's `subtitleLanguage` at generation time — via
+// `drawSubtitle` below (split into short, time-boxed cues by
+// `buildSubtitleCues`; see `reencodeVideoScene`/docs/studio-quality-pass.md
+// §3 — the DB string itself is untouched). There is deliberately no
 // export-time language selector: a scene never carries more than one
-// subtitle track, so there is nothing else to select. No behavior change,
-// just documenting the intent so it stays deliberate.
+// subtitle track, so there is nothing else to select. No behavior change to
+// language handling, just documenting the intent so it stays deliberate.
 import type {
 	Scene,
+	SpeechCue,
 	SubtitleStyle,
 	TimelineEntry,
 } from "@video-platform-challenge/api";
@@ -48,6 +51,10 @@ import {
 	drawSubtitle,
 	STUDIO_BACKDROP_COLOR,
 } from "@/feature/studio/lib/subtitle-canvas";
+import {
+	activeCueAt,
+	resolveSubtitleCues,
+} from "@/feature/studio/lib/subtitle-cues";
 
 /**
  * Thrown by `exportProjectVideo` BEFORE any network call when a timeline
@@ -101,7 +108,7 @@ export type ExportProgress = {
 	stage: ExportStage;
 };
 
-/** Resolves an asset id to a signed, fetchable GET URL. A plain async function (not a hook) so this module — a lib, not a component — stays callable outside React (docs SCOPE item 1: "hooks don't work in a lib"). The real implementation wraps `orpcClient.assets.getDownloadUrl`. */
+/** Resolves an asset id to a signed, fetchable GET URL. A plain async function (not a hook) so this module — a lib, not a component — stays callable outside React (docs SCOPE item 1: "hooks don't work in a lib"). The real implementation looks the id up in the project's batched `assets.getProjectUrls` map. */
 export type GetAssetUrl = (assetId: string) => Promise<string>;
 
 export type ExportProjectVideoParams = {
@@ -116,11 +123,13 @@ export type ExportProjectVideoParams = {
 
 /**
  * One probed scene: its Input, the primary tracks the mux loop reads from,
- * and the two pieces of per-scene metadata the re-encode/burn-in pass needs
- * that live outside the Mediabunny track objects — `subtitleText` (which
- * caption to draw while this scene's frames are on screen) and
- * `durationSeconds` (the timeline's own authored length, used to turn a
- * frame's relative timestamp into an intra-scene progress fraction).
+ * and the per-scene metadata the re-encode/burn-in pass needs that lives
+ * outside the Mediabunny track objects — `subtitleText` (the scene's single
+ * authored line) + `speechCues` (its real STT timing, when present) are both
+ * handed to `resolveSubtitleCues` inside `reencodeVideoScene` to build the
+ * per-time cues, and `durationSeconds` (the timeline's own authored length)
+ * is used both for that call and to turn a frame's relative timestamp into
+ * an intra-scene progress fraction.
  */
 type ProbedScene = {
 	scenePosition: number;
@@ -128,6 +137,7 @@ type ProbedScene = {
 	videoTrack: InputVideoTrack;
 	audioTrack: InputAudioTrack | null;
 	subtitleText: string | null;
+	speechCues: SpeechCue[] | null;
 	durationSeconds: number;
 };
 
@@ -200,13 +210,16 @@ async function probeScene(
 	}
 
 	const audioTrack = await input.getPrimaryAudioTrack();
-	const subtitleText = scenesById[entry.sceneId]?.subtitleText ?? null;
+	const scene = scenesById[entry.sceneId];
+	const subtitleText = scene?.subtitleText ?? null;
+	const speechCues = scene?.speechCues ?? null;
 
 	return {
 		audioTrack,
 		durationSeconds: entry.durationSeconds,
 		input,
 		scenePosition,
+		speechCues,
 		subtitleText,
 		videoTrack,
 	};
@@ -312,11 +325,23 @@ const FRAME_PROGRESS_BATCH = 5;
  * doc comment). Every decoded sample is timestamp-shifted onto the shared
  * output timeline exactly as before; the actual subtitle burn-in happens
  * inside `source`'s own `transform.process` hook (built once in
- * `buildVideoPipeline`), which reads `subtitleTextRef.current` — set here,
- * once per scene, before that scene's frames start flowing through `source`.
- * Since scenes are muxed strictly sequentially (the caller `await`s this
- * function to completion before starting the next scene), the ref is always
- * correct for whichever frame `process` is currently handling.
+ * `buildVideoPipeline`), which reads `subtitleTextRef.current`.
+ *
+ * Time-synced subtitles (docs/studio-quality-pass.md §3, docs
+ * media-ops-container.md Feature 2): `scene.subtitleText` (+ `scene.
+ * speechCues`, when the best-effort kie STT step populated real timing) is
+ * resolved ONCE per scene into short cues via `resolveSubtitleCues` — the
+ * exact same util `SubtitleOverlay` (remotion/composition.tsx) calls for the
+ * live Player preview — then
+ * `subtitleTextRef.current` is reassigned to `activeCueAt(cues,
+ * relativeTimestamp)` on EVERY decoded frame (not once per scene anymore),
+ * right before that frame is handed to `source.add`. Since scenes are muxed
+ * strictly sequentially (the caller `await`s this function to completion
+ * before starting the next scene) AND each frame is `await`ed individually
+ * before the loop moves to the next one, `process` always reads the ref
+ * value written for the frame it's currently compositing — so a burned-in
+ * frame at relative time T always shows the same cue the Player would show
+ * at time T.
  *
  * REN-1 (docs ai-architecture-v1.md §5 finding 1): stops decoding/muxing
  * samples once past `window.end` — this is the actual fix for the
@@ -339,7 +364,11 @@ async function reencodeVideoScene(
 	onFrameProgress: ((relativeTimestampSeconds: number) => void) | undefined,
 	signal: AbortSignal | undefined,
 ): Promise<void> {
-	subtitleTextRef.current = scene.subtitleText;
+	const cues = resolveSubtitleCues(
+		scene.subtitleText,
+		scene.durationSeconds,
+		scene.speechCues,
+	);
 
 	const sink = new VideoSampleSink(scene.videoTrack);
 	const firstTimestamp = Math.max(
@@ -359,6 +388,8 @@ async function reencodeVideoScene(
 			sample.close();
 			continue;
 		}
+
+		subtitleTextRef.current = activeCueAt(cues, relativeTimestamp);
 
 		sample.setTimestamp(
 			shiftIntoOutputTimeline(relativeTimestamp, window, baseOffsetSeconds),

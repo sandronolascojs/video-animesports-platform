@@ -9,7 +9,7 @@ import {
 	VolumeXIcon,
 } from "lucide-react";
 
-import { MainButton } from "@/components/kit/main-button";
+import { MainButton } from "@/components/app/main-button";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { usePlayerFullscreen } from "@/feature/studio/hooks/use-player-fullscreen";

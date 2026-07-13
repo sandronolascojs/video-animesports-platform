@@ -1,4 +1,4 @@
-import { CommandPaletteProvider } from "@/components/kit/command-palette";
+import { CommandPaletteProvider } from "@/components/app/command-palette";
 import { enforceAuth } from "@/libs/auth/server";
 
 /**

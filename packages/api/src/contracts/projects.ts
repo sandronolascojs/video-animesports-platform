@@ -22,6 +22,7 @@ import {
 	projectDetailSchema,
 	projectSchema,
 	projectSummarySchema,
+	retryProjectInputSchema,
 	updateDraftTimelineInputSchema,
 	updateLanguagesInputSchema,
 	updateSubtitleStyleInputSchema,
@@ -121,6 +122,18 @@ export const projectsContract = {
 		NOT_FOUND: notFoundError,
 		CONFLICT: conflictError,
 		GENERATION_FAILED: generationFailedError,
+		RATE_LIMITED: rateLimitedError,
+	}),
+
+	/**
+	 * Re-runs a failed/stuck project's generation from where it left off — the
+	 * workflow reuses the existing plan and skips already-generated
+	 * sheets/keyframes/videos, regenerating only what's missing. Guarded like
+	 * `extend` (terminal status or reclaimable-stuck, hourly rate limit).
+	 */
+	retry: oc.input(retryProjectInputSchema).output(projectSchema).errors({
+		NOT_FOUND: notFoundError,
+		CONFLICT: conflictError,
 		RATE_LIMITED: rateLimitedError,
 	}),
 

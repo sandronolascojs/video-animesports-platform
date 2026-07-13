@@ -1,11 +1,11 @@
 "use client";
 
 import type { AspectRatio } from "@video-platform-challenge/types";
-import { SceneCountSelector } from "@/components/kit/selectors/scene-count-selector";
-import type { SubtitleLanguage } from "@/components/kit/selectors/subtitle-language-selector";
-import { SubtitleLanguageSelector } from "@/components/kit/selectors/subtitle-language-selector";
-import type { VoiceLanguage } from "@/components/kit/selectors/voice-language-selector";
-import { VoiceLanguageSelector } from "@/components/kit/selectors/voice-language-selector";
+import { SceneCountSelector } from "@/components/app/selectors/scene-count-selector";
+import type { SubtitleLanguage } from "@/components/app/selectors/subtitle-language-selector";
+import { SubtitleLanguageSelector } from "@/components/app/selectors/subtitle-language-selector";
+import type { VoiceLanguage } from "@/components/app/selectors/voice-language-selector";
+import { VoiceLanguageSelector } from "@/components/app/selectors/voice-language-selector";
 
 import { AspectRatioSelector } from "@/feature/home/components/aspect-ratio-selector";
 

@@ -8,7 +8,7 @@ import {
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 
-import { AIDockInput } from "@/components/kit/ai-dock";
+import { AIDockInput } from "@/components/app/ai-dock";
 import {
 	isChatWorking,
 	useStudioChat,
