@@ -19,11 +19,13 @@ export const scenes = pgTable(
 			.references(() => user.id, { onDelete: "cascade" }),
 		title: text("title"),
 		prompt: text("prompt").notNull(),
-		// Audio-language spoken line, delivered to kie's TTS (docs §5b).
+		// Audio-language spoken line — Seedance speaks it natively in the scene
+		// video (`generate_audio: true` + the prompt's dialogue clause, docs
+		// studio-fixes-backlog.md).
 		dialogue: text("dialogue"),
-		// Name of the plan character delivering `dialogue` — resolves the
-		// character's fixed voice (gender lives in projects.plan.characters).
-		// Null when the scene is silent or the line is ensemble/off-screen.
+		// Name of the plan character delivering `dialogue` — surfaced in the
+		// video prompt for clarity. Null when the scene is silent or the line
+		// is ensemble/off-screen.
 		speakerName: text("speaker_name"),
 		// Subtitle-language caption text, burned in at render time (docs §5b).
 		subtitleText: text("subtitle_text"),
@@ -40,10 +42,6 @@ export const scenes = pgTable(
 			{ onDelete: "set null" },
 		),
 		videoAssetId: text("video_asset_id").references(() => assets.id, {
-			onDelete: "set null",
-		}),
-		// TTS dialogue track.
-		audioAssetId: text("audio_asset_id").references(() => assets.id, {
 			onDelete: "set null",
 		}),
 		failReason: text("fail_reason"),

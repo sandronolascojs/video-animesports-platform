@@ -4,7 +4,6 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { TemplateKey } from "@video-platform-challenge/types";
 import {
 	AlertTriangleIcon,
-	AudioLinesIcon,
 	ClapperboardIcon,
 	ImageIcon,
 	type LucideIcon,
@@ -54,7 +53,6 @@ const ASSET_KIND_ICON: Record<string, LucideIcon> = {
 	location_sheet: ImageIcon,
 	keyframe: ImageIcon,
 	scene_video: ClapperboardIcon,
-	scene_audio: AudioLinesIcon,
 	render: ClapperboardIcon,
 };
 

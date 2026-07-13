@@ -46,7 +46,6 @@ export function toSceneDto(row: SceneRow): SceneDto {
 		startKeyframeAssetId: row.startKeyframeAssetId,
 		endKeyframeAssetId: row.endKeyframeAssetId,
 		videoAssetId: row.videoAssetId,
-		audioAssetId: row.audioAssetId,
 		failReason: row.failReason,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,

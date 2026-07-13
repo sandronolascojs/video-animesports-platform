@@ -154,7 +154,6 @@ export async function pageAssets(
 			scenes,
 			or(
 				eq(scenes.videoAssetId, assets.id),
-				eq(scenes.audioAssetId, assets.id),
 				eq(scenes.startKeyframeAssetId, assets.id),
 				eq(scenes.endKeyframeAssetId, assets.id),
 			),

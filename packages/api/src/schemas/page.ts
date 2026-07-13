@@ -55,7 +55,7 @@ export const assetPageItemSchema = z.object({
 	projectTitle: z.string().nullable(),
 	projectTemplateKey: templateKeySchema,
 	// The owning scene's prompt when the asset hangs off a scene (keyframes,
-	// scene videos, speech) — the modal's "what is this" copy.
+	// scene videos) — the modal's "what is this" copy.
 	scenePrompt: z.string().nullable(),
 });
 

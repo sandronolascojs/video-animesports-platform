@@ -6,7 +6,6 @@ import type {
 } from "@video-platform-challenge/api";
 import { AssetKind, AssetStatus } from "@video-platform-challenge/types";
 import {
-	AudioLinesIcon,
 	ClapperboardIcon,
 	FolderIcon,
 	ImageIcon,
@@ -182,7 +181,6 @@ const ASSET_KIND_ICON: Record<string, LucideIcon> = {
 	[AssetKind.LOCATION_SHEET]: ImageIcon,
 	[AssetKind.KEYFRAME]: ImageIcon,
 	[AssetKind.SCENE_VIDEO]: ClapperboardIcon,
-	[AssetKind.SCENE_AUDIO]: AudioLinesIcon,
 	[AssetKind.RENDER]: ClapperboardIcon,
 };
 

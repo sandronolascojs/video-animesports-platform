@@ -47,7 +47,6 @@ export const assetKindEnum = pgEnum("asset_kind", [
 	AssetKind.LOCATION_SHEET,
 	AssetKind.KEYFRAME,
 	AssetKind.SCENE_VIDEO,
-	AssetKind.SCENE_AUDIO,
 	AssetKind.RENDER,
 ]);
 
@@ -83,7 +82,6 @@ export const generationTaskKindEnum = pgEnum("generation_task_kind", [
 	GenerationTaskKind.SHEET,
 	GenerationTaskKind.KEYFRAME,
 	GenerationTaskKind.VIDEO,
-	GenerationTaskKind.SPEECH,
 ]);
 
 export const generationTaskStatusEnum = pgEnum("generation_task_status", [

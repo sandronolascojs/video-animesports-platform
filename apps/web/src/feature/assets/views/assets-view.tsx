@@ -8,7 +8,6 @@ import {
 	SortDirection,
 } from "@video-platform-challenge/types";
 import {
-	AudioLinesIcon,
 	ClapperboardIcon,
 	ImageIcon,
 	ImagesIcon,
@@ -53,7 +52,6 @@ const ASSET_KIND_ICON: Record<string, LucideIcon> = {
 	location_sheet: ImageIcon,
 	keyframe: ImageIcon,
 	scene_video: ClapperboardIcon,
-	scene_audio: AudioLinesIcon,
 	render: ClapperboardIcon,
 };
 
@@ -66,7 +64,6 @@ const KIND_FILTER_OPTIONS = [
 	{ label: "Location sheet", value: "location_sheet" },
 	{ label: "Keyframe", value: "keyframe" },
 	{ label: "Scene video", value: "scene_video" },
-	{ label: "Scene audio", value: "scene_audio" },
 	{ label: "Render", value: "render" },
 ];
 
@@ -98,10 +95,6 @@ function AssetMedia({
 	return (
 		<div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
 			<Icon className="size-6 text-muted-foreground/60" />
-			{signed?.url && item.kind === "scene_audio" ? (
-				// biome-ignore lint/a11y/useMediaCaption: generated speech has no caption track.
-				<audio src={signed.url} controls className="w-4/5" />
-			) : null}
 		</div>
 	);
 }

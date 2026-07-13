@@ -11,7 +11,6 @@ import { env } from "@video-platform-challenge/env/server";
 import {
 	createTokenBucket,
 	generateImage,
-	generateSpeech,
 	generateVideo,
 	isAllowedResultUrl,
 	KIE_RATE_LIMIT,
@@ -23,7 +22,6 @@ import {
 } from "@video-platform-challenge/storage";
 import type {
 	AspectRatio,
-	AudioLanguage,
 	ProjectPlan,
 	ProjectPlanCharacter,
 	ProjectPlanCinematography,
@@ -42,10 +40,6 @@ import {
 } from "@video-platform-challenge/types";
 
 import {
-	isReferenceAudioDurationValid,
-	resolveAudioDurationSeconds,
-} from "../lib/audio-duration";
-import {
 	mergeExtensionCharacters,
 	mergeExtensionLocation,
 } from "../lib/extension-plan-merge";
@@ -54,7 +48,6 @@ import { classifyIngestFailure } from "../lib/ingest-failure";
 import { notifyProjectEvent } from "../lib/notify-project-event";
 import { normalizeProjectPlan } from "../lib/plan-compat";
 import { buildAssetR2Key, DEFAULT_CONTENT_TYPE_BY_KIND } from "../lib/r2-keys";
-import { resolveSceneVoice } from "../lib/scene-voice";
 import type { AssetRow } from "../repositories/asset.repository";
 import * as assetRepository from "../repositories/asset.repository";
 import type { GenerationTaskRow } from "../repositories/generation-task.repository";
@@ -722,19 +715,12 @@ interface FetchAndPutToR2Args {
 	projectId: string;
 	kind: AssetKind;
 	resultUrl: string;
-	/** GEN-3: when true, always buffers the FULL response (never streams) and
-	 * returns the raw bytes alongside the usual R2 metadata — `ingestSceneSpeech`
-	 * needs the actual audio bytes in hand to parse a real duration out of
-	 * them. Every other ingest kind leaves this unset and keeps the original
-	 * stream-when-possible behavior. */
-	captureBytes?: boolean;
 }
 
 interface FetchedAsset {
 	r2Key: string;
 	size: number;
 	contentType: string;
-	bytes: Uint8Array | null;
 }
 
 async function fetchAndPutToR2(
@@ -765,37 +751,25 @@ async function fetchAndPutToR2(
 		contentType,
 	});
 
-	let bytes: Uint8Array | null = null;
 	const contentLengthHeader = response.headers.get("content-length");
-	const put = args.captureBytes
-		? await (async () => {
+	const put = contentLengthHeader
+		? await putObject({
+				key,
+				body: response.body,
+				contentType,
+				contentLength: Number(contentLengthHeader),
+			})
+		: await (async () => {
 				const buffer = await response.arrayBuffer();
-				bytes = new Uint8Array(buffer);
 				return putObject({
 					key,
 					body: buffer,
 					contentType,
 					contentLength: buffer.byteLength,
 				});
-			})()
-		: contentLengthHeader
-			? await putObject({
-					key,
-					body: response.body,
-					contentType,
-					contentLength: Number(contentLengthHeader),
-				})
-			: await (async () => {
-					const buffer = await response.arrayBuffer();
-					return putObject({
-						key,
-						body: buffer,
-						contentType,
-						contentLength: buffer.byteLength,
-					});
-				})();
+			})();
 
-	return { r2Key: put.key, size: put.size, contentType, bytes };
+	return { r2Key: put.key, size: put.size, contentType };
 }
 
 /**
@@ -849,17 +823,13 @@ async function reuseOrFetchAsset(
 	r2Key: string;
 	size: number;
 	contentType: string;
-	bytes: Uint8Array | null;
 }> {
 	const existing = await withUser(db, args.userId, (tx) =>
 		assetRepository.findBySource(tx, args.userId, args.generationTaskId),
 	);
 	if (existing) {
-		// Replayed ingest — the asset (and its metadata, e.g. GEN-3's
-		// durationSeconds) is already persisted from the first run; no bytes
-		// to hand back since nothing was re-fetched.
+		// Replayed ingest — the asset is already persisted from the first run.
 		return {
-			bytes: null,
 			contentType: existing.contentType ?? "",
 			existing,
 			r2Key: existing.r2Key ?? "",
@@ -1343,25 +1313,12 @@ export async function createSceneVideoTask(args: {
 	firstFrameUrl: string;
 	lastFrameUrl: string;
 	aspectRatio: AspectRatio;
-	/** Signed GET URL of this scene's TTS asset (architecture/
-	 * v2-voice-pipeline) — handed to Seedance as lip-sync reference audio.
-	 * Null/undefined when the scene has no dialogue, TTS failed, or the TTS
-	 * asset's duration fell outside Seedance's reference-audio bounds
-	 * (`isReferenceAudioDurationValid`); the video still generates — with
-	 * `scene.dialogue` (if any) spoken via Seedance's own `generate_audio`
-	 * instead of lip-synced to a reference track (see
-	 * `promptBuilders.buildSceneVideoPrompt`'s two dialogue-clause wordings). */
-	referenceAudioUrl?: string | null;
 	stepKey?: string;
 }): Promise<CreatedTask> {
 	const reused = await reuseTaskByStepKey(args.userId, args.stepKey);
 	if (reused) {
 		return reused;
 	}
-
-	const referenceAudioUrls = args.referenceAudioUrl
-		? [args.referenceAudioUrl]
-		: undefined;
 
 	const { taskId } = await paced(() =>
 		generateVideo({
@@ -1370,14 +1327,13 @@ export async function createSceneVideoTask(args: {
 				args.cinematography,
 				args.scene.prompt,
 				args.scene.dialogue ?? undefined,
-				referenceAudioUrls !== undefined,
+				args.scene.speakerName,
 			),
 			firstFrameUrl: args.firstFrameUrl,
 			lastFrameUrl: args.lastFrameUrl,
 			aspectRatio: args.aspectRatio,
 			durationSeconds: args.scene.durationSeconds,
 			generateAudio: true,
-			referenceAudioUrls,
 		}),
 	);
 
@@ -1478,146 +1434,6 @@ export async function ingestSceneVideo(args: {
 	}
 
 	return asset;
-}
-
-// ---------------------------------------------------------------------------
-// Scene speech (TTS dialogue track)
-// ---------------------------------------------------------------------------
-
-export async function createSceneSpeechTask(args: {
-	userId: string;
-	projectId: string;
-	workflowInstanceId: string;
-	scene: SceneRow;
-	audioLanguage: AudioLanguage;
-	/** The project's plan characters (docs scenes-architecture-v3.md A3) —
-	 * resolves the scene's speaker to their fixed, deterministically-cast
-	 * voice. Callers pass `project.plan?.characters ?? []`. */
-	characters: ProjectPlanCharacter[];
-	stepKey?: string;
-}): Promise<CreatedTask | null> {
-	const text = args.scene.dialogue?.trim();
-	if (!text) {
-		// No dialogue for this scene — Seedance's own generate_audio still
-		// provides ambient/SFX under it (docs §5b); no TTS task to create.
-		return null;
-	}
-
-	const reused = await reuseTaskByStepKey(args.userId, args.stepKey);
-	if (reused) {
-		return reused;
-	}
-
-	// Voice casting (docs scenes-architecture-v3.md "Voices are cast per
-	// character"): speaker -> plan character -> gender -> fixed pool voice,
-	// with the flat per-language default as fallback. The logic lives in
-	// lib/scene-voice.ts (pure, unit-tested) — same testability split as
-	// lib/fail-reason.ts.
-	const voiceId = resolveSceneVoice({
-		projectId: args.projectId,
-		speakerName: args.scene.speakerName,
-		characters: args.characters,
-		audioLanguage: args.audioLanguage,
-	});
-
-	const { taskId } = await paced(() =>
-		// kie-API-only (architecture/v2-voice-pipeline): this calls kie.ai's own
-		// `createTask` (same client, same KIE_API_KEY as every other provider
-		// call in this file) with model
-		// "elevenlabs/text-to-speech-multilingual-v2" — there is no direct
-		// ElevenLabs API call anywhere in this codebase. `voiceId` is just a
-		// model input parameter kie.ai forwards to ElevenLabs on our behalf.
-		generateSpeech({
-			text,
-			language: args.audioLanguage,
-			voiceId,
-		}),
-	);
-
-	const task = await withUser(db, args.userId, (tx) =>
-		recordGenerationTask(tx, {
-			userId: args.userId,
-			projectId: args.projectId,
-			sceneId: args.scene.id,
-			workflowInstanceId: args.workflowInstanceId,
-			kieTaskId: taskId,
-			kind: GenerationTaskKind.SPEECH,
-			stepKey: args.stepKey,
-		}),
-	);
-
-	return { taskId, generationTaskId: task.id };
-}
-
-// GEN-3 (docs ai-architecture-v1.md §5 finding 3): the guard itself
-// (`isReferenceAudioDurationValid`) now lives in lib/audio-duration.ts,
-// unit-tested directly — re-exported here so every existing call site keeps
-// using `generationService.isReferenceAudioDurationValid(...)` (same pattern
-// as `formatFailReason` below).
-export { isReferenceAudioDurationValid };
-
-export async function ingestSceneSpeech(args: {
-	userId: string;
-	projectId: string;
-	sceneId: string;
-	generationTaskId: string;
-	resultUrl: string;
-	/** GEN-3: the scene's own dialogue text — the word-count heuristic's
-	 * input when neither the WAV header nor the MP3 frame estimate parses
-	 * (see lib/audio-duration.ts). Optional so a caller lacking it (none
-	 * currently) just loses that last-resort fallback, not the ingest itself. */
-	dialogueText?: string | null;
-}): Promise<AssetRow | null> {
-	const { existing, r2Key, size, contentType, bytes } = await reuseOrFetchAsset(
-		{
-			userId: args.userId,
-			projectId: args.projectId,
-			kind: AssetKind.SCENE_AUDIO,
-			resultUrl: args.resultUrl,
-			generationTaskId: args.generationTaskId,
-			captureBytes: true,
-		},
-	);
-
-	// Only computed on a genuine first ingest — `bytes` is null on a replay
-	// (reuseOrFetchAsset's doc comment), where `existing`'s metadata is
-	// already set from the original run.
-	const durationResult = bytes
-		? resolveAudioDurationSeconds({ bytes, dialogueText: args.dialogueText })
-		: null;
-
-	return withUser(db, args.userId, async (tx) => {
-		const project = await projectStillExists(tx, args.userId, args.projectId);
-		if (!project) {
-			return null;
-		}
-
-		const asset =
-			existing ??
-			(await assetRepository.insertAsset(tx, {
-				projectId: args.projectId,
-				userId: args.userId,
-				kind: AssetKind.SCENE_AUDIO,
-				status: AssetStatus.READY,
-				r2Key,
-				contentType,
-				size,
-				source: args.generationTaskId,
-				metadata: durationResult
-					? { durationSeconds: durationResult.durationSeconds }
-					: undefined,
-			}));
-		await sceneRepository.updateById(tx, args.userId, args.sceneId, {
-			audioAssetId: asset.id,
-		});
-		await generationTaskRepository.updateStatus(
-			tx,
-			args.userId,
-			args.generationTaskId,
-			GenerationTaskStatus.SUCCESS,
-		);
-		return asset;
-	});
 }
 
 // ---------------------------------------------------------------------------

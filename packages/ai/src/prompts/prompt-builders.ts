@@ -231,16 +231,12 @@ export function buildKeyframePrompt(
  * fencing anchors) are passed as separate kie.ai parameters, not text — this
  * only builds the `prompt` string.
  *
- * `dialogue`/`hasReferenceAudio` (architecture/v2-voice-pipeline): the
- * spoken-dialogue clause is inserted whenever there IS dialogue,
- * REGARDLESS of whether a reference audio track is being sent — dialogue is
- * never silently dropped from the prompt. `hasReferenceAudio` only picks
- * WHICH wording: with a resolved TTS reference track, Seedance is told to
- * lip-sync to it; without one (TTS failed, skipped, or out of Seedance's
- * duration bounds — orchestration state this function doesn't re-derive,
- * the caller threads it explicitly), Seedance is told to voice the line
- * itself via its own `generate_audio` track, so dialogue always has a
- * fallback path to being spoken on-screen.
+ * `dialogue` (docs studio-fixes-backlog.md): Seedance speaks
+ * dialogue natively — every scene video call passes `generate_audio: true`,
+ * so the spoken-dialogue clause is inserted whenever there IS dialogue,
+ * telling Seedance to voice the line itself in the scene. `speakerName`, if
+ * given, is folded into the clause purely for clarity (e.g. "the character
+ * (Kaito) speaks...") — it does not change generation behavior.
  *
  * Priority order (see `buildKeyframePrompt`'s doc comment for the same
  * rule): style block > the hard no-morphing/on-model consistency clause
@@ -253,12 +249,13 @@ export function buildSceneVideoPrompt(
 	cinematography: ProjectPlanCinematography,
 	scenePrompt: string,
 	dialogue?: string,
-	hasReferenceAudio?: boolean,
+	speakerName?: string | null,
 ): string {
 	const dialogueText = dialogue?.trim();
+	const speakerLabel = speakerName?.trim();
 	const dialogueClause = dialogueText
-		? hasReferenceAudio
-			? `Spoken dialogue: the character speaks these exact words, lip-synced to the provided reference audio: "${dialogueText}"`
+		? speakerLabel
+			? `Spoken dialogue: the character (${speakerLabel}) speaks these exact words aloud in the scene: "${dialogueText}"`
 			: `Spoken dialogue: the character speaks these exact words aloud in the scene: "${dialogueText}"`
 		: undefined;
 	return joinPromptSections([

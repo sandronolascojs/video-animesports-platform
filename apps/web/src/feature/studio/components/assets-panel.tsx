@@ -13,7 +13,6 @@ const KIND_LABEL: Record<Asset["kind"], string> = {
 	keyframe: "Keyframe",
 	location_sheet: "Location sheet",
 	render: "Render",
-	scene_audio: "Scene audio",
 	scene_video: "Scene video",
 };
 

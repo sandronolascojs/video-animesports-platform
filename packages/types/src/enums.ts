@@ -41,7 +41,6 @@ export const AssetKind = {
 	LOCATION_SHEET: "location_sheet",
 	KEYFRAME: "keyframe",
 	SCENE_VIDEO: "scene_video",
-	SCENE_AUDIO: "scene_audio",
 	RENDER: "render",
 } as const;
 
@@ -83,10 +82,9 @@ export const TemplateKey = {
 
 export type TemplateKey = (typeof TemplateKey)[keyof typeof TemplateKey];
 
-// Voice-casting axis for the plan agent's characters (docs §5b voice
-// pipeline): drives which ElevenLabs pool a character's fixed voice is
-// drawn from. Deliberately binary — it mirrors the premade voice catalog's
-// own labeling, not a statement about the story's characters.
+// Character trait captured by the plan agent (docs §5b). No longer drives
+// voice casting (Seedance speaks dialogue natively — see
+// docs/studio-fixes-backlog.md); kept as plan/character metadata.
 export const CharacterGender = {
 	MALE: "male",
 	FEMALE: "female",
@@ -99,7 +97,6 @@ export const GenerationTaskKind = {
 	SHEET: "sheet",
 	KEYFRAME: "keyframe",
 	VIDEO: "video",
-	SPEECH: "speech",
 } as const;
 
 export type GenerationTaskKind =

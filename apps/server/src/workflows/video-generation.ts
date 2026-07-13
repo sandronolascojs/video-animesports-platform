@@ -132,17 +132,9 @@ const VIDEO_POLL_BUDGET: PollBudget = {
 	maxIntervalSeconds: 30,
 };
 
-// TTS (ElevenLabs via kie.ai) — worst case 5×10s + 10×25s = 300s = 5 min.
-const SPEECH_POLL_BUDGET: PollBudget = {
-	maxAttempts: 15,
-	rampAttempts: 5,
-	initialIntervalSeconds: 10,
-	maxIntervalSeconds: 25,
-};
-
-// All three budgets above are calibrated BLIND — no real-key timing data
-// exists yet — deliberately generous against kie.ai's own docs. Tune after
-// the first real run (docs architecture/v2-voice-pipeline).
+// Both budgets above are calibrated BLIND — no real-key timing data exists
+// yet — deliberately generous against kie.ai's own docs. Tune after the
+// first real run.
 
 function pollDelaySeconds(attempt: number, budget: PollBudget): number {
 	return attempt < budget.rampAttempts
@@ -460,26 +452,17 @@ async function generateAndIngestSheet(
 }
 
 /**
- * Generates + ingests a scene's TTS dialogue track FIRST (architecture/
- * v2-voice-pipeline), then generates + ingests the scene's video from its
- * (already-attached) fencing keyframes, handing Seedance the TTS track as
- * `reference_audio_urls` so the character lip-syncs to it. Order matters:
- * the video task can't reference audio that doesn't exist yet.
+ * Generates + ingests a scene's video from its (already-attached) fencing
+ * keyframes. Seedance speaks the scene's dialogue itself — every video call
+ * passes `generate_audio: true`, and the prompt (`promptBuilders.
+ * buildSceneVideoPrompt`) carries the "speaks these exact words aloud"
+ * clause whenever the scene has dialogue (docs
+ * studio-fixes-backlog.md) — no separate TTS task, no reference-audio
+ * signing/ingest step.
  *
- * TTS is non-fatal end to end — task-creation failure, poll timeout, a
- * failed kie.ai state, or a duration out of Seedance's reference-audio
- * bounds (`isReferenceAudioDurationValid`) all fall through to generating
- * the video WITHOUT a reference track (`referenceAudioUrl` stays `null`).
- * The scene still keeps no `audio_asset_id` in that case, but dialogue is
- * NOT silently lost: `createSceneVideoTask` always forwards
- * `scene.dialogue` into the video prompt, just with the "speak it yourself"
- * wording instead of the "lip-sync to this reference" wording when there's
- * no track (see `promptBuilders.buildSceneVideoPrompt`) — voice is an
- * enhancement, never a generation blocker.
- *
- * Video failure IS fatal to the scene (unchanged from before this reorder).
+ * Video failure IS fatal to the scene.
  */
-async function generateSceneSpeechAndVideo(
+async function generateSceneVideo(
 	step: WorkflowStep,
 	args: {
 		userId: string;
@@ -489,86 +472,8 @@ async function generateSceneSpeechAndVideo(
 		styleBible: string;
 		cinematography: ProjectPlanCinematography;
 		aspectRatio: AspectRatio;
-		audioLanguage: Parameters<
-			typeof generationService.createSceneSpeechTask
-		>[0]["audioLanguage"];
-		/** The project's plan characters — resolves the scene's speaker to
-		 * their fixed, deterministically-cast voice (docs
-		 * scenes-architecture-v3.md A3). */
-		characters: ProjectPlanCharacter[];
 	},
 ): Promise<{ succeeded: boolean }> {
-	let referenceAudioUrl: string | null = null;
-	try {
-		const created = await kieStep(step, `create-speech-${args.scene.id}`, () =>
-			generationService.createSceneSpeechTask({
-				userId: args.userId,
-				projectId: args.projectId,
-				workflowInstanceId: args.workflowInstanceId,
-				scene: args.scene,
-				audioLanguage: args.audioLanguage,
-				characters: args.characters,
-				stepKey: `${args.workflowInstanceId}:create-speech-${args.scene.id}`,
-			}),
-		);
-		if (created) {
-			const record = await waitForKieTask(
-				step,
-				created.taskId,
-				{ userId: args.userId, generationTaskId: created.generationTaskId },
-				SPEECH_POLL_BUDGET,
-			);
-			const url = record.resultUrls[0];
-			if (record.state === "success" && url) {
-				const asset = await step.do(`ingest-speech-${args.scene.id}`, () =>
-					generationService.ingestSceneSpeech({
-						userId: args.userId,
-						projectId: args.projectId,
-						sceneId: args.scene.id,
-						generationTaskId: created.generationTaskId,
-						resultUrl: url,
-						dialogueText: args.scene.dialogue,
-					}),
-				);
-				if (
-					asset &&
-					generationService.isReferenceAudioDurationValid(
-						asset,
-						args.scene.durationSeconds,
-					)
-				) {
-					referenceAudioUrl = await step.do(
-						`sign-speech-${args.scene.id}`,
-						() =>
-							generationService.resolveAssetDownloadUrl(args.userId, asset.id),
-					);
-				} else if (asset) {
-					console.error(
-						`[VideoGenerationWorkflow] TTS asset duration out of Seedance's reference-audio bounds, skipping as lip-sync reference (scene=${args.scene.id})`,
-					);
-				}
-			} else {
-				await step.do(`mark-speech-task-failed-${args.scene.id}`, () =>
-					generationService.markGenerationTaskFailed(
-						args.userId,
-						created.generationTaskId,
-						record.failCode,
-						record.failMsg,
-					),
-				);
-			}
-		}
-	} catch (error) {
-		// Non-fatal (architecture/v2-voice-pipeline): the scene video below
-		// still generates without a reference-audio lip-sync track on any TTS
-		// failure — dialogue still gets spoken via Seedance's own
-		// `generate_audio`, just not lip-synced to a pre-rendered clip.
-		console.error(
-			`[VideoGenerationWorkflow] scene speech failed (non-fatal): ${args.scene.id}`,
-			error,
-		);
-	}
-
 	try {
 		const firstFrameUrl = await step.do(
 			`sign-start-keyframe-${args.scene.id}`,
@@ -604,7 +509,6 @@ async function generateSceneSpeechAndVideo(
 					firstFrameUrl,
 					lastFrameUrl,
 					aspectRatio: args.aspectRatio,
-					referenceAudioUrl,
 					stepKey: `${args.workflowInstanceId}:create-video-${args.scene.id}`,
 				}),
 		);
@@ -923,37 +827,59 @@ async function runProjectGenerationMode(
 		);
 	}
 
-	// ---- videos + speech, per scene (skip scenes already failed above).
-	for (const scene of orderedScenes) {
-		if (failedSceneIds.has(scene.id)) {
-			continue;
-		}
+	// ---- videos, per scene (skip scenes already failed above). Concurrent —
+	// unlike the keyframe chain above, each scene's video is independent once
+	// its own start/end keyframes are attached, so there is no ordering
+	// constraint left to preserve here. Every step.do name below is already
+	// suffixed with `scene.id` (reload/mark-failed) or derived from a
+	// per-scene kie taskId (inside `generateSceneVideo`), so running them
+	// concurrently via Promise.allSettled cannot collide on step names.
+	// `generateSceneVideo` already isolates a single scene's failure — it
+	// catches its own errors, marks THAT scene failed, and resolves (never
+	// rejects) — so Promise.allSettled (rather than Promise.all) is a second,
+	// defensive layer: even if a mark-failed step itself somehow exhausted
+	// retries and rejected, that must still not abort sibling scenes' videos
+	// or skip the `finalize` step below, matching the sequential loop's
+	// original behavior of always reaching `finalize` regardless of
+	// individual scene outcomes. kie.ai createTask calls made concurrently
+	// here queue through the shared `kieRateLimiter` token bucket in
+	// generation.service.ts (20/10s) — unchanged, just naturally paced.
+	const videoPhaseResults = await Promise.allSettled(
+		orderedScenes
+			.filter((scene) => !failedSceneIds.has(scene.id))
+			.map(async (scene) => {
+				const fresh = await step.do(`reload-scene-${scene.id}`, () =>
+					generationService.loadScene(userId, scene.id),
+				);
+				if (!fresh?.startKeyframeAssetId || !fresh.endKeyframeAssetId) {
+					await step.do(`mark-scene-failed-missing-kf-${scene.id}`, () =>
+						generationService.markSceneFailed(
+							userId,
+							scene.id,
+							"Missing keyframe anchor(s).",
+						),
+					);
+					return;
+				}
 
-		const fresh = await step.do(`reload-scene-${scene.id}`, () =>
-			generationService.loadScene(userId, scene.id),
-		);
-		if (!fresh?.startKeyframeAssetId || !fresh.endKeyframeAssetId) {
-			await step.do(`mark-scene-failed-missing-kf-${scene.id}`, () =>
-				generationService.markSceneFailed(
+				await generateSceneVideo(step, {
 					userId,
-					scene.id,
-					"Missing keyframe anchor(s).",
-				),
+					projectId,
+					workflowInstanceId,
+					scene: fresh,
+					styleBible,
+					cinematography: resolveCinematography(plan, scene.id, scene.prompt),
+					aspectRatio,
+				});
+			}),
+	);
+	for (const result of videoPhaseResults) {
+		if (result.status === "rejected") {
+			console.error(
+				"[VideoGenerationWorkflow] scene video phase task rejected unexpectedly",
+				result.reason,
 			);
-			continue;
 		}
-
-		await generateSceneSpeechAndVideo(step, {
-			userId,
-			projectId,
-			workflowInstanceId,
-			scene: fresh,
-			styleBible,
-			cinematography: resolveCinematography(plan, scene.id, scene.prompt),
-			aspectRatio,
-			audioLanguage: project.audioLanguage,
-			characters: plan.characters,
-		});
 	}
 
 	await step.do("finalize", () =>
@@ -1148,7 +1074,7 @@ async function runSingleSceneExtension(
 		return { status: "aborted", reason: "scene-not-found" };
 	}
 
-	await generateSceneSpeechAndVideo(step, {
+	await generateSceneVideo(step, {
 		userId,
 		projectId,
 		workflowInstanceId,
@@ -1156,8 +1082,6 @@ async function runSingleSceneExtension(
 		styleBible,
 		cinematography: resolveCinematography(plan, sceneId, freshScene.prompt),
 		aspectRatio,
-		audioLanguage: project.audioLanguage,
-		characters: plan.characters,
 	});
 
 	return { status: "done" };
@@ -1420,7 +1344,7 @@ async function runSceneRetryMode(
 		return { status: "aborted", reason: "scene-not-found" };
 	}
 
-	await generateSceneSpeechAndVideo(step, {
+	await generateSceneVideo(step, {
 		userId,
 		projectId,
 		workflowInstanceId,
@@ -1428,8 +1352,6 @@ async function runSceneRetryMode(
 		styleBible,
 		cinematography: sceneMeta.cinematography,
 		aspectRatio,
-		audioLanguage: project.audioLanguage,
-		characters: normalizedPlan.characters,
 	});
 
 	await step.do("finalize-retry", () =>

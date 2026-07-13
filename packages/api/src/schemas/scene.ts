@@ -34,9 +34,10 @@ export const sceneSchema = z.object({
 	projectId: z.string(),
 	title: z.string().nullable(),
 	prompt: z.string(),
-	// Audio-language spoken line, delivered to kie's TTS (docs §5b).
+	// Audio-language spoken line — Seedance speaks it natively in the scene
+	// video (docs studio-fixes-backlog.md).
 	dialogue: z.string().nullable(),
-	// Plan character delivering `dialogue` (fixed-voice casting, docs §5b).
+	// Plan character delivering `dialogue` — surfaced in the video prompt.
 	speakerName: z.string().nullable(),
 	// Subtitle-language caption text, burned in at render time (docs §5b).
 	subtitleText: z.string().nullable(),
@@ -47,7 +48,6 @@ export const sceneSchema = z.object({
 	startKeyframeAssetId: z.string().nullable(),
 	endKeyframeAssetId: z.string().nullable(),
 	videoAssetId: z.string().nullable(),
-	audioAssetId: z.string().nullable(),
 	failReason: z.string().nullable(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
