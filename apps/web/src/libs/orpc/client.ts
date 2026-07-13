@@ -22,6 +22,13 @@ const link = new RPCLink({
 	customJsonSerializers,
 	interceptors: [
 		onError((error) => {
+			// A cancelled in-flight request (component unmount, or an SSE event
+			// calling `queryClient.invalidateQueries`) rejects with `AbortError`.
+			// That's normal TanStack Query cancellation, not a failure — don't
+			// spam the console with it; log everything else unchanged.
+			if (error instanceof Error && error.name === "AbortError") {
+				return;
+			}
 			console.error(error);
 		}),
 	],
