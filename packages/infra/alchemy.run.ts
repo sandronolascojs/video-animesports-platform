@@ -12,6 +12,7 @@ import {
 	Worker,
 	Workflow,
 } from "alchemy/cloudflare";
+import { CloudflareStateStore } from "alchemy/state";
 import { config } from "dotenv";
 
 config({ path: "./.env" });
@@ -41,7 +42,21 @@ const STAGES: Record<Stage, { bucketName: string }> = {
 
 const { bucketName } = STAGES[stage];
 
-const app = await alchemy("video-platform-challenge", { stage });
+// Alchemy state store. Local dev uses the default file-system store (persistent
+// on disk). CI is ephemeral, so alchemy's orphaned-infra guard REFUSES to run
+// there with the local store — CI must use a persistent remote store. The
+// CloudflareStateStore keeps state in an account-level `alchemy-state-service`
+// worker (auth via `ALCHEMY_STATE_TOKEN` + `CLOUDFLARE_API_TOKEN`); `password`
+// (`ALCHEMY_PASSWORD`) encrypts the `alchemy.secret()` bindings persisted there.
+const app = await alchemy("video-platform-challenge", {
+	stage,
+	...(process.env.CI
+		? {
+				password: process.env.ALCHEMY_PASSWORD,
+				stateStore: (scope) => new CloudflareStateStore(scope),
+			}
+		: {}),
+});
 
 // `app.local` is true for `alchemy dev` (Miniflare) and false for
 // `alchemy deploy` (real Cloudflare resources) — mirrors the `local` flag
