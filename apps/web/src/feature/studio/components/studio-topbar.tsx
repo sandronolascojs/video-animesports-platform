@@ -1,29 +1,20 @@
 "use client";
 
 import { ProjectStatus, SceneStatus } from "@video-platform-challenge/types";
-import {
-	AlertTriangleIcon,
-	ArrowLeftIcon,
-	PanelRightCloseIcon,
-	PanelRightOpenIcon,
-	XIcon,
-} from "lucide-react";
+import { AlertTriangleIcon, ArrowLeftIcon } from "lucide-react";
 import Link from "next/link";
 
 import { MainButton } from "@/components/kit/main-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { isProjectActive } from "@/feature/studio/hooks/http/use-project";
-import {
-	renderButtonLabel,
-	useRenderExport,
-} from "@/feature/studio/hooks/use-render-export";
-import { useStudioChat } from "@/feature/studio/stores/studio-chat-provider";
+import { useRenderExport } from "@/feature/studio/hooks/use-render-export";
 import { useStudio } from "@/feature/studio/stores/use-studio";
 import { cn } from "@/libs/utils";
 
@@ -39,27 +30,24 @@ const STATUS_LABEL: Record<string, string> = {
 
 /**
  * Topbar (docs/studio-design-language.md §3e): back, title, status badge,
- * the Director toggle, Export. Export drives the same `useRenderExport`
- * state machine as the timeline's Render button (front-wiring phase 3, SCOPE
- * item 3's "unify") — disabled while a render is running or until every
- * scene is `video_ready`. Status reads the project row directly
- * (server-authoritative — docs' generating-state machine) rather than being
- * re-derived from scene statuses; a project-level `failReason` (docs
- * "error-first: the product must always load and render failures
- * beautifully") surfaces as a banner right below the bar.
+ * Export. Export drives the same `useRenderExport` state machine as the
+ * timeline's Render button (front-wiring phase 3, SCOPE item 3's "unify") —
+ * disabled while a render is running or until every scene is `video_ready`.
+ * Status reads the project row directly (server-authoritative — docs'
+ * generating-state machine) rather than being re-derived from scene
+ * statuses; a project-level `failReason` (docs "error-first: the product
+ * must always load and render failures beautifully") surfaces as a banner
+ * right below the bar.
  *
- * The Director toggle (§3d "open affordance moves to the Studio topbar") is
- * this route's only way to open `AgentChatSidebar` now that the floating
- * dock is gone — ⌘J (registered in `StudioChatProvider`) does the same.
+ * The Agent chat toggle used to live here — it now lives in
+ * `AgentChatSidebar`'s own header (`SidebarTrigger`), since that rail is a
+ * persistent `components/ui/sidebar.tsx` sidebar with its own open/close
+ * control, not a panel this topbar needs to drive. ⌘J (registered in
+ * `StudioChatProvider`) still opens/closes it from anywhere in the Studio.
  */
 export function StudioTopbar() {
 	const { project, orderedScenes } = useStudio();
-	const { canRender, cancel, isRunning, start, state } = useRenderExport();
-	const {
-		isOpen: isChatOpen,
-		open: openChat,
-		close: closeChat,
-	} = useStudioChat();
+	const { canRender, isRunning, start } = useRenderExport();
 
 	const hasFailedScene = orderedScenes.some(
 		({ scene }) => scene.status === SceneStatus.FAILED,
@@ -111,28 +99,6 @@ export function StudioTopbar() {
 
 				<Tooltip>
 					<TooltipTrigger asChild>
-						<Button
-							type="button"
-							variant="ghost"
-							size="sm"
-							className="gap-1.5"
-							aria-expanded={isChatOpen}
-							aria-label={
-								isChatOpen ? "Close Director chat" : "Open Director chat"
-							}
-							onClick={() => (isChatOpen ? closeChat() : openChat())}
-						>
-							{isChatOpen ? <PanelRightCloseIcon /> : <PanelRightOpenIcon />}
-							Director
-						</Button>
-					</TooltipTrigger>
-					<TooltipContent>
-						{isChatOpen ? "Close" : "Open"} Director chat · ⌘J
-					</TooltipContent>
-				</Tooltip>
-
-				<Tooltip>
-					<TooltipTrigger asChild>
 						<span>
 							<MainButton
 								type="button"
@@ -140,7 +106,14 @@ export function StudioTopbar() {
 								disabled={isRunning || !canRender}
 								onClick={start}
 							>
-								{renderButtonLabel(state, "Export")}
+								{isRunning ? (
+									<>
+										<Spinner className="size-4" />
+										<span className="sr-only">Exporting…</span>
+									</>
+								) : (
+									"Export"
+								)}
 							</MainButton>
 						</span>
 					</TooltipTrigger>
@@ -148,23 +121,6 @@ export function StudioTopbar() {
 						<TooltipContent>All scenes must finish generating</TooltipContent>
 					) : null}
 				</Tooltip>
-
-				{isRunning ? (
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon-sm"
-								aria-label="Cancel export"
-								onClick={cancel}
-							>
-								<XIcon />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>Cancel export</TooltipContent>
-					</Tooltip>
-				) : null}
 			</div>
 
 			{project.failReason ? (

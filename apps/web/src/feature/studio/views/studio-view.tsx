@@ -15,12 +15,12 @@ import { PlayerRefProvider } from "@/feature/studio/stores/player-ref-context";
 /**
  * Studio shell layout (docs/studio-ui.md §1 diagram): topbar, left
  * Assets & Scenes panel / center Player / right History, timeline spanning
- * the full bottom width. The Director agent has no floating dock here
+ * the full bottom width. The Agent has no floating dock here
  * (docs/studio-design-language.md §3d "consolidate the agent chat to the
- * right rail only") — it lives exclusively in `AgentChatSidebar`, mounted by
- * this route's `layout.tsx` as a sibling of this view, opened from
- * `StudioTopbar`'s Director toggle or ⌘J. `AIDock`/`AIDockInput` stay
- * reserved for the Dashboard create composer.
+ * right rail only") — it lives exclusively in `AgentChatSidebar`, a
+ * persistent sidebar mounted by this route's `layout.tsx` as a sibling of
+ * this view, opened from the rail's own `SidebarTrigger` or ⌘J. `AIDock`/
+ * `AIDockInput` stay reserved for the Dashboard create composer.
  *
  * Generation is NON-blocking (RT-2, docs realtime-and-render-lock-v1.md §2):
  * the whole shell stays interactive while a project generates — the "you're

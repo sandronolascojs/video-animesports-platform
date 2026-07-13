@@ -219,13 +219,13 @@ export function AIDockInput({
 								<button
 									type="button"
 									onClick={onOpenSidebar}
-									aria-label="Open Director chat"
+									aria-label="Open Agent chat"
 									className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/40 transition-[color,background-color,transform] duration-150 ease-out hover:bg-muted/30 hover:text-muted-foreground active:scale-[0.94]"
 								>
 									<PanelRightOpenIcon className="h-3.5 w-3.5" />
 								</button>
 							</TooltipTrigger>
-							<TooltipContent side="top">Open Director chat</TooltipContent>
+							<TooltipContent side="top">Open Agent chat</TooltipContent>
 						</Tooltip>
 					) : null}
 					{onMinimize ? (

@@ -17,6 +17,7 @@ import {
 } from "react";
 
 import type { ToolPart } from "@/components/ai-elements/tool";
+import { useSidebar } from "@/components/ui/sidebar";
 import { useAgentHistory } from "@/feature/studio/hooks/http/use-agent-chat";
 import { useShortcut } from "@/hooks/use-platform";
 import { orpc } from "@/libs/orpc";
@@ -77,11 +78,15 @@ function mergeHistoryWithLocalMessages(
 
 export type StudioChatContextValue = {
 	/**
-	 * Whether `AgentChatSidebar` is open — the Studio's ONLY chat surface
+	 * Whether `AgentChatSidebar` is expanded — the Studio's ONLY chat surface
 	 * (docs/studio-design-language.md §3d: the floating dock was removed
 	 * entirely, so this is no longer an exclusivity switch, just the rail's
-	 * own open/close state). Toggled from `StudioTopbar`'s Director button
-	 * or the ⌘J shortcut registered below. Default `false`.
+	 * own open/collapsed state). This is a passthrough onto the right
+	 * `SidebarProvider`'s own `open` state (see `useSidebar()` below) — the
+	 * shadcn Sidebar primitive is the single source of truth, this context
+	 * just re-exposes it under the same name the rest of the Studio already
+	 * reads. Toggled from the rail's own `SidebarTrigger` (in its header) or
+	 * the ⌘J shortcut registered below.
 	 */
 	isOpen: boolean;
 	/** Opens the rail. */
@@ -127,8 +132,17 @@ const StudioChatContext = createContext<StudioChatContextValue | null>(null);
  * only (`isOpen`); AI-4 added the real `useChat` session on top of the same
  * provider; this pass (§3d "consolidate the agent chat to the right rail
  * only") drops the dock↔sidebar dual-view it used to arbitrate — there is
- * only the rail now, so `isOpen` is just its own open/close flag, toggled
- * from `StudioTopbar`'s Director button or the ⌘J shortcut below.
+ * only the rail now.
+ *
+ * Rail restructure: `AgentChatSidebar` is now a persistent
+ * `components/ui/sidebar.tsx` `<Sidebar side="right">`, rendered by a
+ * dedicated right-side `SidebarProvider` that wraps this provider (see
+ * `projects/[projectId]/layout.tsx`). `isOpen`/`open`/`close` below are a
+ * thin passthrough onto that `SidebarProvider`'s own `useSidebar()` state
+ * rather than a second parallel `useState` — one source of truth for
+ * "is the rail expanded", read by both the rail's own `SidebarTrigger` and
+ * this context's consumers. Toggled from the rail's `SidebarTrigger` or the
+ * ⌘J shortcut below (now calling the primitive's own `toggleSidebar()`).
  *
  * History is fetched client-side (`useAgentHistory`), not SSR-prefetched:
  * this provider is mounted in the route's `layout.tsx`, which also renders
@@ -147,7 +161,11 @@ export function StudioChatProvider({
 	projectId: string;
 	children: ReactNode;
 }) {
-	const [isOpen, setIsOpen] = useState(false);
+	// `open`/`setOpen`/`toggleSidebar` come from the right `SidebarProvider`
+	// this component is rendered inside of (see `projects/[projectId]/layout.tsx`)
+	// — the shadcn Sidebar primitive owns the rail's open/collapsed state now,
+	// this provider just re-exposes it (see `isOpen`'s doc comment above).
+	const { open: isOpen, setOpen, toggleSidebar } = useSidebar();
 	// See `prefillSignal`'s doc comment on `StudioChatContextValue` — `undefined`
 	// sentinel until the first suggestion-row click, same convention as
 	// `AIDockInput`'s own `focusSignal` prop.
@@ -159,9 +177,11 @@ export function StudioChatProvider({
 	// ⌘J toggles the rail open/closed from anywhere in the Studio — moved
 	// here (docs §3d) from the removed floating `AIDock`, which used to own
 	// this same shortcut for its own expand/collapse. One registration per
-	// provider instance (i.e. per project route), regardless of whether
-	// `StudioTopbar` or the rail itself is currently mounted.
-	useShortcut("j", () => setIsOpen((prev) => !prev));
+	// provider instance (i.e. per project route). `toggleSidebar()` is the
+	// primitive's own toggle helper (same one `SidebarTrigger` calls), so
+	// this stays in lockstep with the rail's own state instead of
+	// reimplementing the toggle.
+	useShortcut("j", () => toggleSidebar());
 	// "Don't re-run after applied" (docs §8a fix 4): a ref, not a
 	// `messages.length === 0` guard — the old guard permanently skipped
 	// backfill once the user sent a message before history resolved. This
@@ -222,7 +242,7 @@ export function StudioChatProvider({
 		// can render an inline Retry row for as long as the error persists.
 		onError: (chatError) => {
 			console.error("Studio agent chat error:", chatError);
-			toastMutationError(chatError, { title: "Director hit an error" });
+			toastMutationError(chatError, { title: "Agent hit an error" });
 		},
 	});
 
@@ -266,11 +286,11 @@ export function StudioChatProvider({
 	const value = useMemo<StudioChatContextValue>(
 		() => ({
 			clearError,
-			close: () => setIsOpen(false),
+			close: () => setOpen(false),
 			error,
 			isOpen,
 			messages,
-			open: () => setIsOpen(true),
+			open: () => setOpen(true),
 			prefillSignal,
 			prefillText,
 			regenerate: () => {
@@ -288,6 +308,7 @@ export function StudioChatProvider({
 		}),
 		[
 			isOpen,
+			setOpen,
 			messages,
 			sendMessage,
 			status,
