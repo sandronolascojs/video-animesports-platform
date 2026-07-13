@@ -1,7 +1,6 @@
 "use client";
 
 import type { ChatStatus } from "ai";
-import { PanelRightOpenIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
@@ -9,11 +8,6 @@ import { useEffect, useState } from "react";
 import { AIDockInput } from "@/components/kit/ai-dock/ai-dock-input";
 import { AIDockPill } from "@/components/kit/ai-dock/ai-dock-pill";
 import { AIDockStatusBar } from "@/components/kit/ai-dock/ai-dock-status-bar";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useShortcut } from "@/hooks/use-platform";
 
 export type AIDockProps = {
@@ -42,10 +36,13 @@ export type AIDockProps = {
 	focusSignal?: number;
 	/**
 	 * Studio-only (docs/ai-architecture-v1.md §2 "A toggle affordance opens
-	 * the sidebar from the dock"): renders a small icon button beside the
-	 * dock's pill/input that opens the full `AgentChatSidebar`. `undefined`
-	 * (the default) hides it entirely, so `AIDock` stays usable standalone
-	 * (e.g. the kit preview page) without this Studio-specific affordance.
+	 * the sidebar from the dock"): forwarded to `AIDockInput`'s own
+	 * `onOpenSidebar` (Studio UI polish — moved off a standalone button beside
+	 * the dock and into the expanded input's top-right control row, next to
+	 * Minimize), so it only ever renders while the dock is expanded.
+	 * `undefined` (the default) hides it entirely, so `AIDock` stays usable
+	 * standalone (e.g. the kit preview page) without this Studio-specific
+	 * affordance.
 	 */
 	onOpenSidebar?: () => void;
 };
@@ -116,78 +113,61 @@ export function AIDock({
 			// on the full viewport (which is offset by the sidebar).
 			className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex flex-col items-center px-4 pb-4"
 		>
-			<div className="pointer-events-auto flex w-full max-w-2xl items-stretch gap-2">
-				<div className="min-w-0 flex-1">
-					<AnimatePresence initial={false}>
-						{!expanded && hasMessages ? (
-							<AIDockStatusBar
-								key="status"
-								taskName={taskName ?? null}
-								isWorking={isWorking}
-								onExpand={() => setExpanded(true)}
-							/>
-						) : null}
-					</AnimatePresence>
+			<div className="pointer-events-auto w-full max-w-2xl">
+				<AnimatePresence initial={false}>
+					{!expanded && hasMessages ? (
+						<AIDockStatusBar
+							key="status"
+							taskName={taskName ?? null}
+							isWorking={isWorking}
+							onExpand={() => setExpanded(true)}
+						/>
+					) : null}
+				</AnimatePresence>
 
-					<motion.div layout transition={LAYOUT_TRANSITION}>
-						<AnimatePresence mode="wait" initial={false}>
-							{expanded ? (
-								<motion.div
-									key="input"
-									initial={{ opacity: 0 }}
-									animate={{ opacity: 1 }}
-									exit={{ opacity: 0 }}
-									transition={CROSSFADE_TRANSITION}
-								>
-									<AIDockInput
-										mode="floating"
-										value={value}
-										onChange={onChange}
-										onSubmit={onSubmit}
-										placeholders={placeholders}
-										leftToolbar={leftToolbar}
-										status={status}
-										onStop={onStop}
-										onMinimize={() => setExpanded(false)}
-										focusSignal={focusSignal}
-									/>
-								</motion.div>
-							) : (
-								<motion.div
-									key="pill"
-									initial={{ opacity: 0 }}
-									animate={{ opacity: 1 }}
-									exit={{ opacity: 0 }}
-									transition={CROSSFADE_TRANSITION}
-								>
-									<AIDockPill
-										placeholders={placeholders}
-										taskName={taskName ?? null}
-										isWorking={isWorking}
-										hasMessages={hasMessages}
-										onOpen={() => setExpanded(true)}
-									/>
-								</motion.div>
-							)}
-						</AnimatePresence>
-					</motion.div>
-				</div>
-
-				{onOpenSidebar ? (
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<button
-								type="button"
-								onClick={onOpenSidebar}
-								aria-label="Open Director chat"
-								className="glass-composer flex shrink-0 items-center justify-center rounded-2xl px-3 text-muted-foreground/70 transition-colors duration-150 ease-out hover:text-foreground"
+				<motion.div layout transition={LAYOUT_TRANSITION}>
+					<AnimatePresence mode="wait" initial={false}>
+						{expanded ? (
+							<motion.div
+								key="input"
+								initial={{ opacity: 0 }}
+								animate={{ opacity: 1 }}
+								exit={{ opacity: 0 }}
+								transition={CROSSFADE_TRANSITION}
 							>
-								<PanelRightOpenIcon className="size-4" />
-							</button>
-						</TooltipTrigger>
-						<TooltipContent side="top">Open Director chat</TooltipContent>
-					</Tooltip>
-				) : null}
+								<AIDockInput
+									mode="floating"
+									value={value}
+									onChange={onChange}
+									onSubmit={onSubmit}
+									placeholders={placeholders}
+									leftToolbar={leftToolbar}
+									status={status}
+									onStop={onStop}
+									onMinimize={() => setExpanded(false)}
+									onOpenSidebar={onOpenSidebar}
+									focusSignal={focusSignal}
+								/>
+							</motion.div>
+						) : (
+							<motion.div
+								key="pill"
+								initial={{ opacity: 0 }}
+								animate={{ opacity: 1 }}
+								exit={{ opacity: 0 }}
+								transition={CROSSFADE_TRANSITION}
+							>
+								<AIDockPill
+									placeholders={placeholders}
+									taskName={taskName ?? null}
+									isWorking={isWorking}
+									hasMessages={hasMessages}
+									onOpen={() => setExpanded(true)}
+								/>
+							</motion.div>
+						)}
+					</AnimatePresence>
+				</motion.div>
 			</div>
 		</motion.div>
 	);

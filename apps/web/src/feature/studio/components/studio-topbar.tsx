@@ -1,6 +1,6 @@
 "use client";
 
-import { ProjectStatus } from "@video-platform-challenge/types";
+import { ProjectStatus, SceneStatus } from "@video-platform-challenge/types";
 import { AlertTriangleIcon, ArrowLeftIcon, XIcon } from "lucide-react";
 import Link from "next/link";
 
@@ -44,7 +44,7 @@ export function StudioTopbar() {
 	const { canRender, cancel, isRunning, start, state } = useRenderExport();
 
 	const hasFailedScene = orderedScenes.some(
-		({ scene }) => scene.status === "failed",
+		({ scene }) => scene.status === SceneStatus.FAILED,
 	);
 	const isActive = isProjectActive(project);
 	const statusVariant =
@@ -55,6 +55,20 @@ export function StudioTopbar() {
 				: hasFailedScene
 					? "destructive"
 					: "secondary";
+
+	// Ambient "it's working" cue now that generation is non-blocking (RT-2):
+	// while the project is actively generating (first-run OR extend) the pill
+	// counts finished scenes, e.g. "Generating · 2/3". Falls back to the plain
+	// status label ("Planning", "Ready", …) when idle, or before any scene
+	// exists (planning phase) where a 0/0 count would read as noise.
+	const totalScenes = orderedScenes.length;
+	const readyScenes = orderedScenes.filter(
+		({ scene }) => scene.status === SceneStatus.VIDEO_READY,
+	).length;
+	const isGenerating = isActive && totalScenes > 0;
+	const statusLabel = isGenerating
+		? `Generating · ${readyScenes}/${totalScenes}`
+		: (STATUS_LABEL[project.status] ?? project.status);
 
 	return (
 		<div className="flex flex-col gap-2">
@@ -70,8 +84,11 @@ export function StudioTopbar() {
 					{project.title ?? "Untitled project"}
 				</h1>
 
-				<Badge variant={statusVariant}>
-					{STATUS_LABEL[project.status] ?? project.status}
+				<Badge
+					variant={statusVariant}
+					className={isGenerating ? "tabular-nums" : undefined}
+				>
+					{statusLabel}
 				</Badge>
 
 				<Tooltip>
