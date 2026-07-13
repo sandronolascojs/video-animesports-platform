@@ -110,3 +110,5 @@ jobs:
           KIE_API_KEY: ${{ secrets.KIE_API_KEY }}
           KIE_WEBHOOK_SECRET: ${{ secrets.KIE_WEBHOOK_SECRET }}
           AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+          # Shared secret injected into the media-ops Container (alchemy.run.ts).
+          MEDIA_OPS_SECRET: ${{ secrets.MEDIA_OPS_SECRET }}
