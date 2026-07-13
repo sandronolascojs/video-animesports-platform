@@ -28,6 +28,11 @@ const DIALOG_COMPONENTS: Record<
 			(mod) => mod.DeleteSceneDialog,
 		),
 	),
+	"edit-scene": dynamic(() =>
+		import("@/libs/dialogs/modals/edit-scene-dialog").then(
+			(mod) => mod.EditSceneDialog,
+		),
+	),
 };
 
 /**

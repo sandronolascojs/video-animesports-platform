@@ -21,7 +21,6 @@ import {
 	PauseIcon,
 	PlayIcon,
 	PlusIcon,
-	XIcon,
 } from "lucide-react";
 import {
 	useCallback,
@@ -32,22 +31,12 @@ import {
 	useState,
 } from "react";
 
-import { MainButton } from "@/components/kit/main-button";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { TimelineClip } from "@/feature/studio/components/timeline-clip";
 import { TimelinePlayhead } from "@/feature/studio/components/timeline-playhead";
 import { TimelineRuler } from "@/feature/studio/components/timeline-ruler";
 import { usePlayerPlayback } from "@/feature/studio/hooks/use-player-playback";
-import {
-	renderButtonLabel,
-	useRenderExport,
-} from "@/feature/studio/hooks/use-render-export";
 import {
 	clampSeconds,
 	FALLBACK_PX_PER_SECOND,
@@ -84,11 +73,9 @@ type ClipLayout = {
 /**
  * Timeline strip (docs/studio-ui.md §1 "Timeline", spans the FULL bottom
  * width): time ruler + playhead synced with the Remotion Player + @dnd-kit
- * horizontal sortable clip blocks. Render button drives the shared
- * `useRenderExport` state machine (docs §9's browser render flow) —
- * `versions.render` → client-side Mediabunny remux → upload → `markRendered`
- * — the SAME pipeline the topbar's Export button triggers (front-wiring
- * phase 3); disabled while running or until every scene is `video_ready`.
+ * horizontal sortable clip blocks. Render/Export is a SINGLE action and lives
+ * only in the topbar (Export) now — the timeline carries just transport
+ * (play/pause), the timecode, and zoom, to avoid a duplicate hero button.
  *
  * Time math: `feature/studio/lib/time.ts` (fps single-sourced with
  * `remotion/composition.tsx`). Playhead sync: `use-player-playback.ts`
@@ -104,7 +91,6 @@ export function TimelineStrip() {
 		selectedSceneId,
 		selectScene,
 	} = useStudio();
-	const { canRender, cancel, isRunning, start, state } = useRenderExport();
 	const {
 		frame,
 		isPlaying,
@@ -241,10 +227,16 @@ export function TimelineStrip() {
 				return;
 			}
 			const rect = container.getBoundingClientRect();
-			// `- RULER_INSET_PX`: the track's second-0 mark sits `RULER_INSET_PX`
-			// in from the scroll container's own left edge (see the inset
-			// wrapper in the render below), so pointer math has to shift by the
-			// same amount to land on the right instant.
+			// `- RULER_INSET_PX`: the track wrapper sits `RULER_INSET_PX` in from
+			// the scroll container's own left edge via `paddingInlineStart` (see
+			// the render below) — padding-before-content scrolls away exactly
+			// like the old `marginLeft` did, so the track's second-0 mark is
+			// still offset by `RULER_INSET_PX` from `container`'s unscrolled
+			// reference edge (`rect.left`) and pointer math is unchanged by the
+			// marginLeft → padding swap. `container` has no border (checked:
+			// `scrollbar-none` declares none), so `rect.left` IS the padding-box
+			// edge scrollLeft is measured from — no border-width correction
+			// needed.
 			const rawSeconds =
 				(clientX - rect.left - RULER_INSET_PX + container.scrollLeft) /
 				pxPerSecond;
@@ -453,41 +445,6 @@ export function TimelineStrip() {
 						<span className="sr-only">Zoom in</span>
 					</Button>
 				</ButtonGroup>
-
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<span>
-							<MainButton
-								type="button"
-								size="sm"
-								disabled={isRunning || timeline.length === 0 || !canRender}
-								onClick={start}
-							>
-								{renderButtonLabel(state)}
-							</MainButton>
-						</span>
-					</TooltipTrigger>
-					{!canRender && timeline.length > 0 ? (
-						<TooltipContent>All scenes must finish generating</TooltipContent>
-					) : null}
-				</Tooltip>
-
-				{isRunning ? (
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon-sm"
-								aria-label="Cancel render"
-								onClick={cancel}
-							>
-								<XIcon className="size-4" />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>Cancel render</TooltipContent>
-					</Tooltip>
-				) : null}
 			</div>
 
 			{!hasScenes ? (
@@ -498,102 +455,133 @@ export function TimelineStrip() {
 			) : (
 				<div
 					ref={scrollRef}
-					className="scrollbar-thin relative min-h-0 flex-1 overflow-x-auto overflow-y-hidden"
+					className="scrollbar-none relative flex min-h-0 flex-1 items-start overflow-x-auto overflow-y-hidden"
+					style={{
+						// Symmetric padding on ALL sides (not just inline): the top
+						// inset gives the ruler's labels room so `overflow-y-hidden`
+						// can't shave their tops, and it matches the horizontal inset
+						// so the track sits in an even frame. `items-start` stops the
+						// flex row from stretching the track wrapper to the container's
+						// full height — that stretch was making the playhead
+						// (`inset-y-0`) overhang far below the clips.
+						padding: RULER_INSET_PX,
+						scrollPaddingInline: RULER_INSET_PX,
+						// Fade the leading/trailing `RULER_INSET_PX` at the viewport
+						// edges so a label (or clip) crossing the edge while the track
+						// is scrolled/zoomed dissolves softly instead of showing a hard
+						// half-cut number — the professional NLE edge treatment. At the
+						// fit zoom the labels sit exactly at the opaque boundary (the
+						// padding == the fade width), so nothing fades at rest.
+						maskImage: `linear-gradient(to right, transparent 0, black ${RULER_INSET_PX}px, black calc(100% - ${RULER_INSET_PX}px), transparent 100%)`,
+						WebkitMaskImage: `linear-gradient(to right, transparent 0, black ${RULER_INSET_PX}px, black calc(100% - ${RULER_INSET_PX}px), transparent 100%)`,
+					}}
 				>
-					{/* Outer content box reserves `RULER_INSET_PX` of scrollable
-					    space on BOTH edges — at fit zoom this makes the scrollable
-					    content exactly match the container's width (no leftover
-					    scroll room), while giving the 0:00 / end labels breathing
-					    room instead of sitting flush against the container edge. */}
-					<div style={{ width: trackWidthPx + RULER_INSET_PX * 2 }}>
-						<div
-							className="relative"
-							style={{ marginLeft: RULER_INSET_PX, width: trackWidthPx }}
+					{/* Real padding (not marginLeft + an exact-width outer box)
+					    reserves `RULER_INSET_PX` on the leading edge. Padding on a
+					    scroll container is part of its scrollable region, so the
+					    inset survives scrolling instead of only existing at rest —
+					    that's what let the old marginLeft trick's labels reach the
+					    clipped edge. `min-width` (not `width`) lets the track grow
+					    past the container when zoomed in without an exact/max-size
+					    ceiling; the ruler/track lane/gridlines/playhead below still
+					    all read the same `trackWidthPx` so they stay aligned. */}
+					<div className="relative shrink-0" style={{ minWidth: trackWidthPx }}>
+						<TimelineRuler
+							pxPerSecond={pxPerSecond}
+							rulerSeconds={rulerSeconds}
+							widthPx={trackWidthPx}
+							onScrubPointerDown={handleScrubPointerDown}
+							onScrubPointerMove={handleScrubPointerMove}
+							onScrubPointerEnd={handleScrubPointerEnd}
+						/>
+
+						<DndContext
+							// Explicit `id` (not dnd-kit's auto-generated one): the
+							// auto-generated id is a module-level counter that can
+							// legitimately differ between the SSR pass and the client's
+							// first hydration render (e.g. React 19 dev double-render),
+							// producing an `aria-describedby` mismatch — a documented
+							// dnd-kit SSR gotcha, fixed by pinning a stable id.
+							id="studio-timeline-dnd"
+							sensors={sensors}
+							collisionDetection={closestCenter}
+							onDragEnd={handleDragEnd}
 						>
-							<TimelineRuler
-								pxPerSecond={pxPerSecond}
-								rulerSeconds={rulerSeconds}
-								widthPx={trackWidthPx}
-								onScrubPointerDown={handleScrubPointerDown}
-								onScrubPointerMove={handleScrubPointerMove}
-								onScrubPointerEnd={handleScrubPointerEnd}
-							/>
-
-							<DndContext
-								// Explicit `id` (not dnd-kit's auto-generated one): the
-								// auto-generated id is a module-level counter that can
-								// legitimately differ between the SSR pass and the client's
-								// first hydration render (e.g. React 19 dev double-render),
-								// producing an `aria-describedby` mismatch — a documented
-								// dnd-kit SSR gotcha, fixed by pinning a stable id.
-								id="studio-timeline-dnd"
-								sensors={sensors}
-								collisionDetection={closestCenter}
-								onDragEnd={handleDragEnd}
+							<SortableContext
+								items={timeline.map((entry) => entry.sceneId)}
+								strategy={horizontalListSortingStrategy}
 							>
-								<SortableContext
-									items={timeline.map((entry) => entry.sceneId)}
-									strategy={horizontalListSortingStrategy}
+								{/* Editor track lane: a full-width band with a subtle fill
+								    and inset hairline so clips sit INSIDE a visible track
+								    (and the empty track past the last clip still reads as a
+								    lane when zoomed out) instead of floating on black. */}
+								<div
+									className="relative overflow-hidden rounded-lg bg-white/[0.02] ring-1 ring-border/40 ring-inset"
+									style={{ height: TRACK_HEIGHT_PX, width: trackWidthPx }}
 								>
-									{/* Editor track lane: a full-width band with a subtle fill
-									    and inset hairline so clips sit INSIDE a visible track
-									    (and the empty track past the last clip still reads as a
-									    lane when zoomed out) instead of floating on black. */}
+									{/* Vertical grid lines aligned to the ruler's major ticks. */}
 									<div
-										className="relative mt-1 overflow-hidden rounded-lg bg-white/[0.02] ring-1 ring-border/40 ring-inset"
-										style={{ height: TRACK_HEIGHT_PX, width: trackWidthPx }}
+										aria-hidden
+										className="pointer-events-none absolute inset-0"
 									>
-										{/* Vertical grid lines aligned to the ruler's major ticks. */}
-										<div
-											aria-hidden
-											className="pointer-events-none absolute inset-0"
-										>
-											{gridlines.map((line) => (
-												<div
-													key={line.seconds}
-													className="absolute inset-y-0 w-px bg-border/25"
-													style={{ left: line.leftPx }}
-												/>
-											))}
-										</div>
-										{/* Background scrub target — sits behind the clips (DOM order), so pointer events land on whichever is topmost at that x/y with no propagation tricks needed. */}
-										<div
-											className="absolute inset-0 touch-none"
-											onPointerDown={handleScrubPointerDown}
-											onPointerMove={handleScrubPointerMove}
-											onPointerUp={handleScrubPointerEnd}
-											onPointerCancel={handleScrubPointerEnd}
-										/>
-										{orderedScenes.map(({ entry, scene }, index) => {
-											const layout = clips[index];
-											if (!layout) {
-												return null;
-											}
-											return (
-												<TimelineClip
-													key={entry.sceneId}
-													entry={entry}
-													scene={scene}
-													leftPx={layout.leftPx}
-													widthPx={layout.widthPx}
-													isSelected={selectedSceneId === entry.sceneId}
-													onSelect={selectScene}
-												/>
-											);
-										})}
+										{gridlines.map((line) => (
+											<div
+												key={line.seconds}
+												className="absolute inset-y-0 w-px bg-border/25"
+												style={{ left: line.leftPx }}
+											/>
+										))}
 									</div>
-								</SortableContext>
-							</DndContext>
+									{/* Background scrub target — sits behind the clips (DOM order), so pointer events land on whichever is topmost at that x/y with no propagation tricks needed. */}
+									<div
+										className="absolute inset-0 touch-none"
+										onPointerDown={handleScrubPointerDown}
+										onPointerMove={handleScrubPointerMove}
+										onPointerUp={handleScrubPointerEnd}
+										onPointerCancel={handleScrubPointerEnd}
+									/>
+									{orderedScenes.map(({ entry, scene }, index) => {
+										const layout = clips[index];
+										if (!layout) {
+											return null;
+										}
+										return (
+											<TimelineClip
+												key={entry.sceneId}
+												entry={entry}
+												scene={scene}
+												leftPx={layout.leftPx}
+												widthPx={layout.widthPx}
+												isSelected={selectedSceneId === entry.sceneId}
+												onSelect={selectScene}
+											/>
+										);
+									})}
+								</div>
+							</SortableContext>
+						</DndContext>
 
-							<TimelinePlayhead
-								leftPx={playheadLeftPx}
-								isScrubbing={isScrubbing}
-								onScrubPointerDown={handleScrubPointerDown}
-								onScrubPointerMove={handleScrubPointerMove}
-								onScrubPointerEnd={handleScrubPointerEnd}
-							/>
-						</div>
+						<TimelinePlayhead
+							leftPx={playheadLeftPx}
+							isScrubbing={isScrubbing}
+							onScrubPointerDown={handleScrubPointerDown}
+							onScrubPointerMove={handleScrubPointerMove}
+							onScrubPointerEnd={handleScrubPointerEnd}
+						/>
 					</div>
+
+					{/* Trailing spacer: real layout width, not `padding-inline-end`.
+					    Browsers drop the END-side padding of a FLEX `overflow-x`
+					    container from the scrollable region (a documented
+					    scroll/flexbox quirk) — this container is a flex row so the
+					    ruler/track wrapper and this spacer lay out side by side —
+					    so an actual element is what guarantees the last label keeps
+					    its `RULER_INSET_PX` of room at max `scrollLeft`. */}
+					<div
+						aria-hidden
+						className="shrink-0"
+						style={{ width: RULER_INSET_PX }}
+					/>
 				</div>
 			)}
 		</div>

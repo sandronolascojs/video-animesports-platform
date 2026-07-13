@@ -9,7 +9,6 @@ import {
 	RotateCcwIcon,
 	Trash2Icon,
 } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -19,10 +18,13 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/ui/empty";
-import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useAssetUrl } from "@/feature/studio/hooks/http/use-asset-url";
 import {
 	isProjectActive,
@@ -47,14 +49,10 @@ const STATUS_LABEL: Record<Scene["status"], string> = {
 };
 
 // The header lines up thumbnail (w-16) + gap-3 (0.75rem) = 4.75rem before the
-// title column starts — everything rendered below a row (status line, failed
-// reason, the editor) indents to that same column so it reads as nested
-// under the row's title, not a separate block.
+// title column starts — everything rendered below a row (the generating
+// progress bar, the failed icon+retry line) indents to that same column so
+// it reads as nested under the row's title, not a separate block.
 const ROW_INDENT = "pl-[4.75rem]";
-
-// Zero-bounce spring for the inline editor reveal (emil-design-eng /
-// show-more.tsx precedent) — crisp, no elastic overshoot.
-const EDITOR_SPRING = { type: "spring", duration: 0.35, bounce: 0 } as const;
 
 /** Keyframe preview — resolves a signed URL for `scene.startKeyframeAssetId` and falls back to a skeleton while it loads or isn't set yet. */
 function SceneThumbnail({
@@ -83,18 +81,21 @@ function SceneThumbnail({
 /**
  * One scene row — flat, no per-item card (docs/studio-design-language.md
  * §3a). Compact by default: thumbnail + title + a quiet status line, with
- * delete/retry revealed on hover/focus. Selecting the row (click, or the
- * matching timeline clip via the shared `selectedSceneId`) fills it with
- * `bg-accent` and, for a `video_ready` scene, expands the prompt/dialogue/
- * subtitle editor inline underneath — never a nested card.
+ * delete/retry revealed on hover/focus.
+ *
+ * Studio quality pass §2b: clicking the row opens a dedicated
+ * `EditSceneDialog` (`libs/dialogs/modals/edit-scene-dialog.tsx`) for that
+ * scene's prompt/dialogue/subtitle/duration — the row is only ever the
+ * trigger now, no inline expand cramped into this narrow panel. §2c: a
+ * `FAILED` scene shows a compact destructive icon instead of the failure
+ * text inline; hover or focus reveals the reason via a shadcn `Tooltip`.
  */
 function SceneRow({ scene, projectId }: { scene: Scene; projectId: string }) {
-	const { updateSceneField, removeSceneLocal, selectedSceneId, selectScene } =
+	const { patchScene, removeSceneLocal, selectedSceneId, selectScene } =
 		useStudio();
 	const { open: openDialog } = useDialog();
 	const retryScene = useRetryScene(projectId);
 	const removeScene = useRemoveScene(projectId);
-	const reduceMotion = useReducedMotion();
 	const isSelected = selectedSceneId === scene.id;
 
 	const isGenerating =
@@ -107,7 +108,6 @@ function SceneRow({ scene, projectId }: { scene: Scene; projectId: string }) {
 		scene.status === SceneStatus.VIDEO_PENDING ||
 		scene.status === SceneStatus.VIDEO_READY;
 	const isFailed = scene.status === SceneStatus.FAILED;
-	const showEditor = isSelected && scene.status === SceneStatus.VIDEO_READY;
 
 	const handleRetry = () => {
 		retryScene.mutate(
@@ -151,10 +151,19 @@ function SceneRow({ scene, projectId }: { scene: Scene; projectId: string }) {
 		});
 	};
 
+	const handleOpenEditor = () => {
+		selectScene(scene.id);
+		openDialog("edit-scene", {
+			onSaved: (updated) => patchScene(updated),
+			projectId,
+			scene,
+		});
+	};
+
 	return (
-		// biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: click-to-select mirrors the timeline clip — a pointer convenience layered over the row's own focusable controls (inputs, buttons, textareas), not a new interactive element of its own.
+		// biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: click-to-select-and-edit mirrors the timeline clip — a pointer convenience layered over the row's own focusable controls (buttons), not a new interactive element of its own.
 		<div
-			onClick={() => selectScene(scene.id)}
+			onClick={handleOpenEditor}
 			className={cn(
 				"group flex flex-col gap-1.5 px-2 py-2 transition-colors duration-150 ease-out",
 				isSelected ? "bg-accent" : "hover:bg-accent/40",
@@ -227,11 +236,24 @@ function SceneRow({ scene, projectId }: { scene: Scene; projectId: string }) {
 			) : null}
 
 			{isFailed ? (
-				<div className={cn("flex items-start gap-2", ROW_INDENT)}>
-					<AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0 text-destructive" />
-					<p className="min-w-0 flex-1 text-destructive text-xs">
-						{scene.failReason ?? "Generation failed."}
-					</p>
+				<div className={cn("flex items-center gap-2", ROW_INDENT)}>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-xs"
+								className="text-destructive hover:text-destructive"
+								onClick={(event) => event.stopPropagation()}
+							>
+								<AlertTriangleIcon className="size-3.5" />
+								<span className="sr-only">Failure reason</span>
+							</Button>
+						</TooltipTrigger>
+						<TooltipContent side="bottom" className="max-w-64">
+							{scene.failReason ?? "Generation failed."}
+						</TooltipContent>
+					</Tooltip>
 					<Button
 						type="button"
 						size="xs"
@@ -241,81 +263,13 @@ function SceneRow({ scene, projectId }: { scene: Scene; projectId: string }) {
 							event.stopPropagation();
 							handleRetry();
 						}}
-						className="shrink-0 gap-1"
+						className="gap-1"
 					>
 						<RotateCcwIcon className="size-3" />
 						Retry
 					</Button>
 				</div>
 			) : null}
-
-			<AnimatePresence initial={false}>
-				{showEditor ? (
-					<motion.div
-						key="editor"
-						initial={{ height: 0, opacity: 0 }}
-						animate={{ height: "auto", opacity: 1 }}
-						exit={{ height: 0, opacity: 0 }}
-						transition={reduceMotion ? { duration: 0 } : EDITOR_SPRING}
-						className="overflow-hidden"
-					>
-						<div className={cn("flex flex-col gap-2 pt-1.5", ROW_INDENT)}>
-							<div className="flex flex-col gap-1">
-								<Label
-									htmlFor={`${scene.id}-prompt`}
-									className="text-muted-foreground text-xs"
-								>
-									Prompt
-								</Label>
-								<Textarea
-									id={`${scene.id}-prompt`}
-									value={scene.prompt}
-									onChange={(event) =>
-										updateSceneField(scene.id, "prompt", event.target.value)
-									}
-									className="min-h-16 text-xs"
-								/>
-							</div>
-							<div className="flex flex-col gap-1">
-								<Label
-									htmlFor={`${scene.id}-dialogue`}
-									className="text-muted-foreground text-xs"
-								>
-									Dialogue
-								</Label>
-								<Textarea
-									id={`${scene.id}-dialogue`}
-									value={scene.dialogue ?? ""}
-									onChange={(event) =>
-										updateSceneField(scene.id, "dialogue", event.target.value)
-									}
-									className="min-h-10 text-xs"
-								/>
-							</div>
-							<div className="flex flex-col gap-1">
-								<Label
-									htmlFor={`${scene.id}-subtitle`}
-									className="text-muted-foreground text-xs"
-								>
-									Subtitle
-								</Label>
-								<Textarea
-									id={`${scene.id}-subtitle`}
-									value={scene.subtitleText ?? ""}
-									onChange={(event) =>
-										updateSceneField(
-											scene.id,
-											"subtitleText",
-											event.target.value,
-										)
-									}
-									className="min-h-10 text-xs"
-								/>
-							</div>
-						</div>
-					</motion.div>
-				) : null}
-			</AnimatePresence>
 		</div>
 	);
 }
@@ -323,9 +277,8 @@ function SceneRow({ scene, projectId }: { scene: Scene; projectId: string }) {
 /**
  * Scenes tab (docs/studio-design-language.md §3a): one flat surface — a
  * list of compact rows separated by hairline dividers, not bordered
- * scene cards. Selecting a row is the only way to expand its editor; the
- * manual counterpart of the future agent's tools — same services behind
- * both.
+ * scene cards. Selecting a row opens its edit dialog; the manual
+ * counterpart of the future agent's tools — same services behind both.
  */
 export function ScenesPanel() {
 	const { orderedScenes, project, projectId } = useStudio();
@@ -334,7 +287,7 @@ export function ScenesPanel() {
 
 	return (
 		<div className="flex h-full min-h-0 flex-col gap-3">
-			<div className="min-h-0 flex-1 overflow-y-auto pr-1">
+			<div className="scrollbar-none min-h-0 flex-1 overflow-y-auto pr-1">
 				{orderedScenes.length === 0 ? (
 					<Empty className="h-full border-none p-6">
 						<EmptyHeader>

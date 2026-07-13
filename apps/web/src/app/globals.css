@@ -300,6 +300,20 @@
 		background: var(--muted-foreground);
 	}
 
+	/*
+	 * Fully hidden scrollbar — keeps `overflow`/scrolling functional, just
+	 * never paints a track/thumb (docs/studio-quality-pass.md §2a). Unlike
+	 * `.scrollbar-hide` above, this does NOT force an `overflow-x`/`overflow-y`
+	 * direction, so it's safe on containers that scroll vertically (e.g. the
+	 * Scenes list) as well as the timeline's horizontal strip.
+	 */
+	.scrollbar-none {
+		scrollbar-width: none; /* Firefox */
+	}
+	.scrollbar-none::-webkit-scrollbar {
+		display: none; /* Chrome, Safari and Opera */
+	}
+
 	/* Scrollbar track transparent */
 	.scrollbar-track-transparent::-webkit-scrollbar-track {
 		background: transparent;
