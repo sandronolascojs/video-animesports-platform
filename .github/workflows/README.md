@@ -39,6 +39,7 @@ All of these are consumed by the `deploy` job (Drizzle migrate + `alchemy deploy
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account id — alchemy provider + `AccountId()`/`AccountApiToken()` calls in `alchemy.run.ts`. |
 | `ALCHEMY_STATE_TOKEN` | Auth token for alchemy's persistent `CloudflareStateStore` (see `alchemy.run.ts`). CI is ephemeral, so alchemy refuses to run there with the default local state store — it needs a remote one. Generate once with `openssl rand -hex 32` and reuse it across deploys (rotating it needs `ALCHEMY_STATE_FORCE_UPDATE=true` for one deploy). |
 | `ALCHEMY_PASSWORD` | Passphrase that encrypts the `alchemy.secret()` bindings persisted in the state store. Any strong secret; keep it stable. |
+| `MEDIA_OPS_SECRET` | Shared secret the media-ops Container validates on every request — server Worker binding + container env. |
 
 Not needed as CI secrets: `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_ACCOUNT_ID` / `R2_BUCKET_NAME` — these are derived at deploy time by `alchemy.run.ts` itself (`AccountId()`, `bucket.name`, `storageToken.accessKeyId/secretAccessKey`), not sourced from the environment.
 
