@@ -119,7 +119,7 @@ export const studioAgentTools = {
 	}),
 	update_languages: tool({
 		description:
-			"Updates the project's audio (spoken dialogue) and/or subtitle (caption) language. Provide at least one of audio or subtitles — calling this with neither is rejected.",
+			"Updates the project's audio (spoken dialogue) and/or subtitle (caption) language. Provide at least one of audio or subtitles — calling this with neither is rejected. Changing the subtitle language also RE-TRANSLATES every existing scene's captions into the new language and refreshes the Player.",
 		inputSchema: z
 			.object({
 				audio: audioLanguageSchema

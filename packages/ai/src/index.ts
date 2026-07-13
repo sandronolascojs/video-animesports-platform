@@ -8,4 +8,5 @@ export * from "./prompts/prompt-builders";
 export * from "./prompts/style-bible";
 export * from "./prompts/templates";
 export * from "./runtime";
+export * from "./subtitle-translate";
 export * from "./transcribe";
