@@ -252,6 +252,23 @@ function bindStudioAgentTools({
 			execute: async ({ audio, subtitles }) => {
 				try {
 					const before = await projectService.get({ session, id: projectId });
+					const audioChanged =
+						audio !== undefined && audio !== before.audioLanguage;
+					const subtitleChanged =
+						subtitles !== undefined && subtitles !== before.subtitleLanguage;
+					// No-op: the requested language(s) already match the project.
+					// Report changed:false (no DB write, no re-translation) so the
+					// agent tells the user it's already set instead of implying work
+					// happened — which could prompt an unnecessary re-render.
+					if (!audioChanged && !subtitleChanged) {
+						return {
+							updated: true,
+							changed: false,
+							audioLanguage: before.audioLanguage,
+							subtitleLanguage: before.subtitleLanguage,
+							translatedScenes: 0,
+						};
+					}
 					const updated = await projectService.updateLanguages({
 						session,
 						id: projectId,
@@ -259,7 +276,7 @@ function bindStudioAgentTools({
 						subtitleLanguage: subtitles,
 					});
 					let translatedScenes = 0;
-					if (subtitles && subtitles !== before.subtitleLanguage) {
+					if (subtitleChanged && subtitles !== undefined) {
 						translatedScenes =
 							await generationService.translateAndStoreProjectSubtitles(
 								userId,
@@ -269,6 +286,7 @@ function bindStudioAgentTools({
 					}
 					return {
 						updated: true,
+						changed: true,
 						audioLanguage: updated.audioLanguage,
 						subtitleLanguage: updated.subtitleLanguage,
 						translatedScenes,
