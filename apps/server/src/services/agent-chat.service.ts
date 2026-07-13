@@ -51,6 +51,7 @@ import type { ProjectRow } from "../repositories/project.repository";
 import * as projectRepository from "../repositories/project.repository";
 import type { SceneRow } from "../repositories/scene.repository";
 import * as sceneRepository from "../repositories/scene.repository";
+import * as generationService from "./generation.service";
 import * as projectService from "./project.service";
 import * as sceneService from "./scene.service";
 import * as versionService from "./version.service";
@@ -250,16 +251,27 @@ function bindStudioAgentTools({
 			...studioAgentTools.update_languages,
 			execute: async ({ audio, subtitles }) => {
 				try {
+					const before = await projectService.get({ session, id: projectId });
 					const updated = await projectService.updateLanguages({
 						session,
 						id: projectId,
 						audioLanguage: audio,
 						subtitleLanguage: subtitles,
 					});
+					let translatedScenes = 0;
+					if (subtitles && subtitles !== before.subtitleLanguage) {
+						translatedScenes =
+							await generationService.translateAndStoreProjectSubtitles(
+								userId,
+								projectId,
+								subtitles,
+							);
+					}
 					return {
 						updated: true,
 						audioLanguage: updated.audioLanguage,
 						subtitleLanguage: updated.subtitleLanguage,
+						translatedScenes,
 					};
 				} catch (error) {
 					return { updated: false, error: toToolErrorMessage(error) };

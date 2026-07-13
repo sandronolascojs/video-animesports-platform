@@ -3,7 +3,11 @@
 // VideoGenerationWorkflow's steps need; the workflow file owns only
 // orchestration (step sequencing, retries, wait/poll) — see
 // workflows/video-generation.ts.
-import { transcribeSpeech } from "@video-platform-challenge/ai";
+import {
+	transcribeSpeech,
+	translateSubtitleCues,
+	translateSubtitleText,
+} from "@video-platform-challenge/ai";
 import * as promptBuilders from "@video-platform-challenge/ai/prompts/prompt-builders";
 import { compileStyleBible } from "@video-platform-challenge/ai/prompts/style-bible";
 import type { UserScopedTx } from "@video-platform-challenge/db";
@@ -29,6 +33,7 @@ import type {
 	ProjectPlanKeyframe,
 	ProjectPlanLocation,
 	SpeechCue,
+	SubtitleLanguage,
 	TimelineEntry,
 } from "@video-platform-challenge/types";
 import {
@@ -1619,6 +1624,64 @@ export async function extractAndStoreSceneSubtitles(args: {
 		);
 		return null;
 	}
+}
+
+/**
+ * Translates every scene's existing subtitles (subtitleText + real speechCues,
+ * timing preserved) into `target`, persists them, and fires a `scene` SSE event
+ * per updated scene so the Player preview refreshes live. Best-effort per scene:
+ * one scene's translation failure never blocks the others. Returns how many
+ * scenes were updated.
+ */
+export async function translateAndStoreProjectSubtitles(
+	userId: string,
+	projectId: string,
+	target: SubtitleLanguage,
+): Promise<number> {
+	const scenes = await loadScenes(userId, projectId);
+	let translated = 0;
+	for (const scene of scenes) {
+		const hasText = Boolean(scene.subtitleText?.trim());
+		const hasCues = Boolean(scene.speechCues && scene.speechCues.length > 0);
+		if (!hasText && !hasCues) {
+			continue;
+		}
+		try {
+			const subtitleText = hasText
+				? await translateSubtitleText(scene.subtitleText as string, target)
+				: scene.subtitleText;
+			const speechCues = hasCues
+				? await translateSubtitleCues(scene.speechCues as SpeechCue[], target)
+				: scene.speechCues;
+			const row = await withUser(db, userId, async (tx) => {
+				const stillExists = await projectStillExists(tx, userId, projectId);
+				if (!stillExists) {
+					return null;
+				}
+				return sceneRepository.updateById(tx, userId, scene.id, {
+					subtitleText,
+					speechCues,
+				});
+			});
+			if (!row) {
+				continue;
+			}
+			translated++;
+			await notifyProjectEvent(env, {
+				type: "scene",
+				projectId,
+				sceneId: scene.id,
+				status: scene.status,
+				at: Date.now(),
+			});
+		} catch (error) {
+			console.error(
+				`[generation.service] subtitle translation failed (scene=${scene.id})`,
+				error,
+			);
+		}
+	}
+	return translated;
 }
 
 // ---------------------------------------------------------------------------
