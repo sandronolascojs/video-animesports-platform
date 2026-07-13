@@ -123,11 +123,13 @@ interface PollBudget {
 	maxIntervalSeconds: number;
 }
 
-// Sheets + keyframes (gpt-image-2, docs §3) — worst case
-// 12×10s + 12×30s = 480s = 8 min.
+// Sheets + keyframes (gpt-image-2, docs §3). Bumped from 8 min after a real
+// run: kie's image model can sit in `generating` for well over 8 minutes, so
+// the old budget timed sheets out that would have succeeded. Now ~19 min:
+// 10×10s + 35×30s = 1150s.
 const IMAGE_POLL_BUDGET: PollBudget = {
-	maxAttempts: 24,
-	rampAttempts: 12,
+	maxAttempts: 45,
+	rampAttempts: 10,
 	initialIntervalSeconds: 10,
 	maxIntervalSeconds: 30,
 };
