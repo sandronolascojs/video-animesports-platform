@@ -1595,10 +1595,24 @@ export async function extractAndStoreSceneSubtitles(args: {
 		}
 		const videoBytes = new Uint8Array(await response.arrayBuffer());
 
-		const speechCues = await transcribeSpeech(videoBytes);
-		if (speechCues.length === 0) {
+		const rawCues = await transcribeSpeech(videoBytes);
+		if (rawCues.length === 0) {
 			return null;
 		}
+
+		// Whisper transcribes the SPOKEN audio, i.e. the AUDIO language. If the
+		// user picked a different SUBTITLE language at creation, translate the
+		// cues into it (timing preserved) so the on-screen subtitles honor that
+		// choice instead of just captioning the spoken audio verbatim. Same
+		// audio/subtitle language → no translation. On a translation failure the
+		// whole step falls back to null (the scene then uses its
+		// `subtitleText`, which the plan already wrote in the subtitle language),
+		// so a hiccup never leaves subtitles stuck in the wrong language.
+		const project = await loadProject(args.userId, args.projectId);
+		const speechCues =
+			project && project.subtitleLanguage !== project.audioLanguage
+				? await translateSubtitleCues(rawCues, project.subtitleLanguage)
+				: rawCues;
 
 		return await withUser(db, args.userId, async (tx) => {
 			const stillExists = await projectStillExists(
