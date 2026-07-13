@@ -2,25 +2,34 @@
 
 import type { Scene } from "@video-platform-challenge/api";
 import { SceneStatus } from "@video-platform-challenge/types";
-import type { VariantProps } from "class-variance-authority";
 import {
 	AlertTriangleIcon,
+	FilmIcon,
 	PlusIcon,
 	RotateCcwIcon,
 	Trash2Icon,
 } from "lucide-react";
 
-import { Badge, type badgeVariants } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
+import {
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyMedia,
+	EmptyTitle,
+} from "@/components/ui/empty";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
-import { useAssetUrl } from "@/feature/studio/hooks/http/use-asset-url";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
 	isProjectActive,
 	useExtendProject,
 } from "@/feature/studio/hooks/http/use-project";
+import { useAssetUrl } from "@/feature/studio/hooks/http/use-project-asset-urls";
 import {
 	useRemoveScene,
 	useRetryScene,
@@ -30,18 +39,6 @@ import { useDialog } from "@/libs/dialogs/use-dialog";
 import { toast } from "@/libs/toast";
 import { cn } from "@/libs/utils";
 
-const STATUS_VARIANT: Record<
-	Scene["status"],
-	VariantProps<typeof badgeVariants>["variant"]
-> = {
-	failed: "destructive",
-	keyframe_pending: "default",
-	keyframe_ready: "default",
-	planned: "secondary",
-	video_pending: "default",
-	video_ready: "secondary",
-};
-
 const STATUS_LABEL: Record<Scene["status"], string> = {
 	failed: "Failed",
 	keyframe_pending: "Generating keyframes…",
@@ -50,6 +47,12 @@ const STATUS_LABEL: Record<Scene["status"], string> = {
 	video_pending: "Generating video…",
 	video_ready: "Ready",
 };
+
+// The header lines up thumbnail (w-16) + gap-3 (0.75rem) = 4.75rem before the
+// title column starts — everything rendered below a row (the generating
+// progress bar, the failed icon+retry line) indents to that same column so
+// it reads as nested under the row's title, not a separate block.
+const ROW_INDENT = "pl-[4.75rem]";
 
 /** Keyframe preview — resolves a signed URL for `scene.startKeyframeAssetId` and falls back to a skeleton while it loads or isn't set yet. */
 function SceneThumbnail({
@@ -62,7 +65,7 @@ function SceneThumbnail({
 	const { data, isLoading } = useAssetUrl(assetId);
 
 	if (!assetId || isLoading || !data) {
-		return <Skeleton className="h-16 w-full rounded-lg" />;
+		return <Skeleton className="h-11 w-16 rounded-lg" />;
 	}
 
 	return (
@@ -70,36 +73,100 @@ function SceneThumbnail({
 		<img
 			src={data.url}
 			alt={alt}
-			className="h-16 w-full rounded-lg object-cover"
+			className="h-11 w-16 rounded-lg object-cover"
 		/>
 	);
 }
 
+/**
+ * One scene row — flat, no per-item card (docs/studio-design-language.md
+ * §3a). Compact by default: thumbnail + title + a quiet status line, with
+ * delete/retry revealed on hover/focus.
+ *
+ * Studio quality pass §2b: clicking the row opens a dedicated
+ * `EditSceneDialog` (`libs/dialogs/modals/edit-scene-dialog.tsx`) for that
+ * scene's prompt/dialogue/subtitle/duration — the row is only ever the
+ * trigger now, no inline expand cramped into this narrow panel. §2c: a
+ * `FAILED` scene shows a compact destructive icon instead of the failure
+ * text inline; hover or focus reveals the reason via a shadcn `Tooltip`.
+ */
 function SceneRow({ scene, projectId }: { scene: Scene; projectId: string }) {
-	const { updateSceneField, removeSceneLocal, selectedSceneId, selectScene } =
+	const { patchScene, removeSceneLocal, selectedSceneId, selectScene } =
 		useStudio();
 	const { open: openDialog } = useDialog();
 	const retryScene = useRetryScene(projectId);
 	const removeScene = useRemoveScene(projectId);
 	const isSelected = selectedSceneId === scene.id;
 
-	const isGeneratingKeyframe =
+	const isGenerating =
 		scene.status === SceneStatus.PLANNED ||
-		scene.status === SceneStatus.KEYFRAME_PENDING;
+		scene.status === SceneStatus.KEYFRAME_PENDING ||
+		scene.status === SceneStatus.KEYFRAME_READY ||
+		scene.status === SceneStatus.VIDEO_PENDING;
 	const hasKeyframePreview =
 		scene.status === SceneStatus.KEYFRAME_READY ||
 		scene.status === SceneStatus.VIDEO_PENDING ||
 		scene.status === SceneStatus.VIDEO_READY;
+	const isFailed = scene.status === SceneStatus.FAILED;
+
+	const handleRetry = () => {
+		retryScene.mutate(
+			{ id: scene.id },
+			{
+				onSuccess: () => {
+					toast.info({
+						description: "Generation restarted for this scene.",
+						icon: <RotateCcwIcon className="size-4" />,
+						title: `Retrying "${scene.title ?? "scene"}"`,
+					});
+				},
+			},
+		);
+	};
+
+	const handleDelete = () => {
+		openDialog("delete-scene", {
+			onConfirm: () => {
+				removeScene.mutate(
+					{ id: scene.id },
+					{
+						// Batch C fix 5: the success toast moved HERE (from the
+						// dialog's synchronous onClick) — this fires only once
+						// the mutation actually resolves, so it can never show
+						// alongside `useRemoveScene`'s onError toast for the
+						// same delete.
+						onSuccess: (result) => {
+							removeSceneLocal(scene.id, result.timeline);
+							toast.success({
+								title: `Deleted "${scene.title ?? "Untitled scene"}"`,
+								description: "The scene was removed from the timeline.",
+								icon: <Trash2Icon className="size-4" />,
+							});
+						},
+					},
+				);
+			},
+			sceneId: scene.id,
+			title: scene.title ?? "Untitled scene",
+		});
+	};
+
+	const handleOpenEditor = () => {
+		selectScene(scene.id);
+		openDialog("edit-scene", {
+			onSaved: (updated) => patchScene(updated),
+			projectId,
+			scene,
+		});
+	};
 
 	return (
-		// biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: click-to-select mirrors the timeline clip — a pointer convenience layered over the row's own focusable controls (inputs, buttons, textareas), not a new interactive element of its own.
+		// biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: click-to-select-and-edit mirrors the timeline clip — a pointer convenience layered over the row's own focusable controls (buttons), not a new interactive element of its own.
 		<div
-			onClick={() => selectScene(scene.id)}
+			onClick={handleOpenEditor}
 			className={cn(
-				"flex flex-col gap-3 rounded-xl border p-3 transition-colors duration-150 ease-out",
-				isSelected
-					? "border-primary/60 ring-1 ring-primary/40"
-					: "border-border/60",
+				"group flex flex-col gap-1.5 px-2 py-2 transition-colors duration-150 ease-out",
+				isSelected ? "bg-accent" : "hover:bg-accent/40",
 			)}
 		>
 			<div className="flex items-center gap-3">
@@ -118,157 +185,100 @@ function SceneRow({ scene, projectId }: { scene: Scene; projectId: string }) {
 					<p className="truncate font-medium text-sm">
 						{scene.title ?? "Untitled scene"}
 					</p>
-					<Badge variant={STATUS_VARIANT[scene.status]} className="mt-1">
-						{STATUS_LABEL[scene.status]}
-					</Badge>
-				</div>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon-sm"
-					className="shrink-0 text-muted-foreground hover:text-destructive"
-					onClick={(event) => {
-						event.stopPropagation();
-						openDialog("delete-scene", {
-							onConfirm: () => {
-								removeScene.mutate(
-									{ id: scene.id },
-									{
-										// Batch C fix 5: the success toast moved HERE (from the
-										// dialog's synchronous onClick) — this fires only once
-										// the mutation actually resolves, so it can never show
-										// alongside `useRemoveScene`'s onError toast for the
-										// same delete.
-										onSuccess: (result) => {
-											removeSceneLocal(scene.id, result.timeline);
-											toast.success({
-												title: `Deleted "${scene.title ?? "Untitled scene"}"`,
-												description: "The scene was removed from the timeline.",
-												icon: <Trash2Icon className="size-4" />,
-											});
-										},
-									},
-								);
-							},
-							sceneId: scene.id,
-							title: scene.title ?? "Untitled scene",
-						});
-					}}
-				>
-					<Trash2Icon className="size-4" />
-					<span className="sr-only">Delete scene</span>
-				</Button>
-			</div>
-
-			{isGeneratingKeyframe ? (
-				<div className="flex flex-col gap-2">
-					<Skeleton className="h-16 w-full rounded-lg" />
-					<p className="text-muted-foreground text-xs">
-						{STATUS_LABEL[scene.status]}
-					</p>
-				</div>
-			) : scene.status === SceneStatus.FAILED ? (
-				<div className="flex flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-2.5">
-					<div className="flex items-start gap-2">
-						<AlertTriangleIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
-						<p className="text-destructive text-xs">
-							{scene.failReason ?? "Generation failed."}
+					{scene.status === SceneStatus.VIDEO_READY ? null : (
+						<p
+							className={cn(
+								"truncate text-xs",
+								isFailed ? "text-destructive" : "text-muted-foreground",
+							)}
+						>
+							{STATUS_LABEL[scene.status]}
 						</p>
-					</div>
+					)}
+				</div>
+				<div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover:opacity-100">
+					{isFailed ? (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-xs"
+							disabled={retryScene.isPending}
+							className="text-muted-foreground hover:text-foreground"
+							onClick={(event) => {
+								event.stopPropagation();
+								handleRetry();
+							}}
+						>
+							<RotateCcwIcon className="size-3.5" />
+							<span className="sr-only">Retry scene</span>
+						</Button>
+					) : null}
 					<Button
 						type="button"
-						size="sm"
+						variant="ghost"
+						size="icon-xs"
+						className="text-muted-foreground hover:text-destructive"
+						onClick={(event) => {
+							event.stopPropagation();
+							handleDelete();
+						}}
+					>
+						<Trash2Icon className="size-3.5" />
+						<span className="sr-only">Delete scene</span>
+					</Button>
+				</div>
+			</div>
+
+			{isGenerating ? (
+				<div className={ROW_INDENT}>
+					<Progress value={undefined} className="h-1 animate-pulse" />
+				</div>
+			) : null}
+
+			{isFailed ? (
+				<div className={cn("flex items-center gap-2", ROW_INDENT)}>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-xs"
+								className="text-destructive hover:text-destructive"
+								onClick={(event) => event.stopPropagation()}
+							>
+								<AlertTriangleIcon className="size-3.5" />
+								<span className="sr-only">Failure reason</span>
+							</Button>
+						</TooltipTrigger>
+						<TooltipContent side="bottom" className="max-w-64">
+							{scene.failReason ?? "Generation failed."}
+						</TooltipContent>
+					</Tooltip>
+					<Button
+						type="button"
+						size="xs"
 						variant="outline"
 						disabled={retryScene.isPending}
-						onClick={() => {
-							retryScene.mutate(
-								{ id: scene.id },
-								{
-									onSuccess: () => {
-										toast.info({
-											description: "Generation restarted for this scene.",
-											icon: <RotateCcwIcon className="size-4" />,
-											title: `Retrying "${scene.title ?? "scene"}"`,
-										});
-									},
-								},
-							);
+						onClick={(event) => {
+							event.stopPropagation();
+							handleRetry();
 						}}
-						className="w-fit gap-1.5"
+						className="gap-1"
 					>
-						<RotateCcwIcon className="size-3.5" />
+						<RotateCcwIcon className="size-3" />
 						Retry
 					</Button>
 				</div>
-			) : scene.status === SceneStatus.VIDEO_PENDING ||
-				scene.status === SceneStatus.KEYFRAME_READY ? (
-				<div className="flex flex-col gap-2">
-					<Progress value={undefined} className="h-1.5 animate-pulse" />
-					<p className="text-muted-foreground text-xs">
-						{STATUS_LABEL[scene.status]}
-					</p>
-				</div>
-			) : (
-				<div className="flex flex-col gap-2">
-					<div className="flex flex-col gap-1">
-						<Label
-							htmlFor={`${scene.id}-prompt`}
-							className="text-muted-foreground text-xs"
-						>
-							Prompt
-						</Label>
-						<Textarea
-							id={`${scene.id}-prompt`}
-							value={scene.prompt}
-							onChange={(event) =>
-								updateSceneField(scene.id, "prompt", event.target.value)
-							}
-							className="min-h-16 text-xs"
-						/>
-					</div>
-					<div className="flex flex-col gap-1">
-						<Label
-							htmlFor={`${scene.id}-dialogue`}
-							className="text-muted-foreground text-xs"
-						>
-							Dialogue
-						</Label>
-						<Textarea
-							id={`${scene.id}-dialogue`}
-							value={scene.dialogue ?? ""}
-							onChange={(event) =>
-								updateSceneField(scene.id, "dialogue", event.target.value)
-							}
-							className="min-h-10 text-xs"
-						/>
-					</div>
-					<div className="flex flex-col gap-1">
-						<Label
-							htmlFor={`${scene.id}-subtitle`}
-							className="text-muted-foreground text-xs"
-						>
-							Subtitle
-						</Label>
-						<Textarea
-							id={`${scene.id}-subtitle`}
-							value={scene.subtitleText ?? ""}
-							onChange={(event) =>
-								updateSceneField(scene.id, "subtitleText", event.target.value)
-							}
-							className="min-h-10 text-xs"
-						/>
-					</div>
-				</div>
-			)}
+			) : null}
 		</div>
 	);
 }
 
 /**
- * Scenes tab (docs/studio-ui.md §1 "Assets & Scenes panel"): editable rows
- * bound to draft state, per-status generating/failed presentation, add/delete
- * scene. The manual counterpart of the future agent's tools — same services
- * behind both.
+ * Scenes tab (docs/studio-design-language.md §3a): one flat surface — a
+ * list of compact rows separated by hairline dividers, not bordered
+ * scene cards. Selecting a row opens its edit dialog; the manual
+ * counterpart of the future agent's tools — same services behind both.
  */
 export function ScenesPanel() {
 	const { orderedScenes, project, projectId } = useStudio();
@@ -277,13 +287,25 @@ export function ScenesPanel() {
 
 	return (
 		<div className="flex h-full min-h-0 flex-col gap-3">
-			<div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
+			<div className="scrollbar-none min-h-0 flex-1 overflow-y-auto pr-1">
 				{orderedScenes.length === 0 ? (
-					<p className="px-1 text-muted-foreground text-xs">No scenes yet.</p>
+					<Empty className="h-full border-none p-6">
+						<EmptyHeader>
+							<EmptyMedia variant="icon">
+								<FilmIcon />
+							</EmptyMedia>
+							<EmptyTitle>No scenes yet</EmptyTitle>
+							<EmptyDescription>
+								Add a scene to start building the timeline.
+							</EmptyDescription>
+						</EmptyHeader>
+					</Empty>
 				) : (
-					orderedScenes.map(({ scene }) => (
-						<SceneRow key={scene.id} scene={scene} projectId={projectId} />
-					))
+					<div className="divide-y divide-border/50">
+						{orderedScenes.map(({ scene }) => (
+							<SceneRow key={scene.id} scene={scene} projectId={projectId} />
+						))}
+					</div>
 				)}
 			</div>
 			<Button

@@ -29,9 +29,23 @@ export const MAX_REFERENCE_AUDIO_URLS = 3;
 
 export interface GenerateVideoInput {
 	prompt: string;
-	/** Keyframe fencing anchors (docs §2) — scene i: first=Ki, last=Ki+1. */
+	/**
+	 * Keyframe fencing anchor — the chained first frame (docs
+	 * last-frame-chaining.md Feature 1): scene i's `firstFrameUrl` is the REAL
+	 * last frame extracted from scene i-1's rendered video (or this scene's
+	 * own start keyframe as a fallback — scene 1, or when extraction failed).
+	 */
 	firstFrameUrl: string;
-	lastFrameUrl: string;
+	/**
+	 * Optional (docs last-frame-chaining.md Feature 1, superseding the prior
+	 * always-fenced K_i→K_{i+1} approach): omitted so seedance animates ONE
+	 * natural action forward from `firstFrameUrl` instead of being forced to
+	 * converge on a second fixed endpoint — better physics. Tradeoff: video
+	 * generation moves from concurrent to sequential per scene (each scene
+	 * needs the previous one's real last frame first) — coherence over
+	 * concurrency, owner call (see apps/server's video-generation.ts).
+	 */
+	lastFrameUrl?: string;
 	/** See image.ts's note — our AspectRatio values pass straight through. */
 	aspectRatio: AspectRatio;
 	/** Integer seconds, 4-15 (docs §3; bounds shared with packages/types). */
@@ -91,7 +105,7 @@ export async function generateVideo(
 		input: {
 			prompt,
 			first_frame_url: firstFrameUrl,
-			last_frame_url: lastFrameUrl,
+			...(lastFrameUrl ? { last_frame_url: lastFrameUrl } : {}),
 			aspect_ratio: aspectRatio,
 			resolution: SEEDANCE_RESOLUTION,
 			duration: durationSeconds,

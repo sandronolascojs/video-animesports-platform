@@ -15,13 +15,18 @@ export function createAuth() {
 		emailAndPassword: {
 			enabled: true,
 		},
-		// uncomment cookieCache setting when ready to deploy to Cloudflare using *.workers.dev domains
-		// session: {
-		//   cookieCache: {
-		//     enabled: true,
-		//     maxAge: 60,
-		//   },
-		// },
+		// Session cookie cache: better-auth caches the validated session in a
+		// signed cookie, so getSession serves from the cookie instead of hitting
+		// the DB on every request — the read only re-validates against Postgres
+		// once the cache is older than `maxAge`. A big win on Workers (a DB round
+		// trip per request is expensive even through Hyperdrive); the short 60s
+		// window keeps staleness bounded (a revoked session clears within a minute).
+		session: {
+			cookieCache: {
+				enabled: true,
+				maxAge: 60,
+			},
+		},
 		secret: env.BETTER_AUTH_SECRET,
 		baseURL: env.BETTER_AUTH_URL,
 		rateLimit: {

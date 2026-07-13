@@ -6,7 +6,6 @@ import type {
 } from "@video-platform-challenge/api";
 import { AssetKind, AssetStatus } from "@video-platform-challenge/types";
 import {
-	AudioLinesIcon,
 	ClapperboardIcon,
 	FolderIcon,
 	ImageIcon,
@@ -16,13 +15,18 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 
-import { ErrorStateCard } from "@/components/kit/error-state-card";
-import { JewelIcon } from "@/components/kit/jewel-icon";
-import { ShowMore } from "@/components/kit/show-more";
+import { ErrorStateCard } from "@/components/app/error-state-card";
+import { FrostedImage, FrostedVideo } from "@/components/app/frosted-media";
+import { JewelIcon } from "@/components/app/jewel-icon";
+import { ShowMore } from "@/components/app/show-more";
 import { SPORT_TEMPLATES } from "@/feature/home/sport-templates";
 // Cross-feature import (studio owns asset URLs): the dashboard previews the
-// same signed thumbnails the Studio renders — one hook, one TTL policy.
-import { useAssetUrl } from "@/feature/studio/hooks/http/use-asset-url";
+// same signed thumbnails the Studio renders — one hook, one TTL policy. The
+// asset grid batches every project asset URL in ONE request via the provider.
+import {
+	ProjectAssetUrlsProvider,
+	useAssetUrl,
+} from "@/feature/studio/hooks/http/use-project-asset-urls";
 
 /* -------------------------------------------------------------------------- */
 /* Section chrome (Higgsfield register: jewel icon + uppercase header)        */
@@ -79,12 +83,22 @@ export function ProjectMediaCard({ project }: { project: ProjectSummary }) {
 	const template = SPORT_TEMPLATES.find(
 		(candidate) => candidate.key === project.templateKey,
 	);
+	const previewIsVideo =
+		project.thumbnailKind === AssetKind.SCENE_VIDEO ||
+		project.thumbnailKind === AssetKind.RENDER;
 
 	return (
 		<div className="glass-edge flex flex-col gap-3 rounded-2xl bg-card/50 p-3">
-			{/* Media area — template artwork until real render thumbnails exist. */}
-			<div className="relative aspect-video overflow-hidden rounded-xl">
-				{template?.hasStill ? (
+			{/* Media area: the project's own footage (video → keyframe still), or
+			    template artwork only until it has produced any asset. */}
+			<div className="relative aspect-video overflow-hidden rounded-xl bg-card/80">
+				{project.thumbnailUrl ? (
+					previewIsVideo ? (
+						<FrostedVideo src={project.thumbnailUrl} />
+					) : (
+						<FrostedImage src={project.thumbnailUrl} alt="" />
+					)
+				) : template?.hasStill ? (
 					<Image
 						src={`/templates/${template.key}-v2.png`}
 						alt={template.name}
@@ -95,7 +109,7 @@ export function ProjectMediaCard({ project }: { project: ProjectSummary }) {
 				) : (
 					<div className="absolute inset-0 bg-gradient-to-br from-chart-1 to-chart-2" />
 				)}
-				<div className="absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.45),transparent_45%)]" />
+				<div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.45),transparent_45%)]" />
 				<span className="absolute bottom-2 left-3 font-medium text-sm text-white">
 					{statusLabel(project.status)} · {project.aspectRatio}
 				</span>
@@ -182,7 +196,6 @@ const ASSET_KIND_ICON: Record<string, LucideIcon> = {
 	[AssetKind.LOCATION_SHEET]: ImageIcon,
 	[AssetKind.KEYFRAME]: ImageIcon,
 	[AssetKind.SCENE_VIDEO]: ClapperboardIcon,
-	[AssetKind.SCENE_AUDIO]: AudioLinesIcon,
 	[AssetKind.RENDER]: ClapperboardIcon,
 };
 
@@ -249,15 +262,19 @@ export function AssetsSection({
 					hint="Something went wrong while fetching your latest assets."
 					onRetry={onRetry}
 				/>
-			) : assets.length > 0 ? (
-				// peek ≈ one tile row — extra rows frost under the veil.
-				<ShowMore peek={176}>
-					<div className="grid grid-cols-3 gap-4 sm:grid-cols-6">
-						{assets.map((asset) => (
-							<AssetTile key={asset.id} asset={asset} />
-						))}
-					</div>
-				</ShowMore>
+			) : detail && assets.length > 0 ? (
+				// peek ≈ one tile row — extra rows frost under the veil. The provider
+				// batches every asset URL for this project in ONE request; each
+				// `AssetTile`'s `useAssetUrl` then reads from that map (no fan-out).
+				<ProjectAssetUrlsProvider projectId={detail.id}>
+					<ShowMore peek={176}>
+						<div className="grid grid-cols-3 gap-4 sm:grid-cols-6">
+							{assets.map((asset) => (
+								<AssetTile key={asset.id} asset={asset} />
+							))}
+						</div>
+					</ShowMore>
+				</ProjectAssetUrlsProvider>
 			) : (
 				<EmptyStateCard
 					icon={SparklesIcon}

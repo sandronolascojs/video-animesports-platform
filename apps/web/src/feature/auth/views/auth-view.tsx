@@ -10,7 +10,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
-import { MainButton } from "@/components/kit/main-button";
+import { MainButton } from "@/components/app/main-button";
 import Loader from "@/components/loader";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";

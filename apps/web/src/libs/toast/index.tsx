@@ -11,6 +11,8 @@ import type { ReactNode } from "react";
 import type { SileoOptions } from "sileo";
 import { Toaster as SileoToaster, sileo } from "sileo";
 
+import { cn } from "@/libs/utils";
+
 /**
  * The only module allowed to import from "sileo" — every call site in the app
  * goes through `toast.*` / `<Toaster />` below, never `sileo.*` directly, so
@@ -32,7 +34,7 @@ const STATE_ICON = {
 	error: <OctagonXIcon className={ICON_CLASS} />,
 	warning: <TriangleAlertIcon className={ICON_CLASS} />,
 	info: <InfoIcon className={ICON_CLASS} />,
-	loading: <Loader2Icon className={`${ICON_CLASS} animate-spin`} />,
+	loading: <Loader2Icon className={cn(ICON_CLASS, "animate-spin")} />,
 } as const;
 
 type ToastState = "success" | "error" | "warning" | "info";

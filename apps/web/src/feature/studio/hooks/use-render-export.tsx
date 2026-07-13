@@ -199,12 +199,25 @@ export function RenderExportProvider({ children }: { children: ReactNode }) {
 				const version = await orpcClient.versions.render({ projectId });
 
 				setState({ progress: 0, status: "rendering", versionId: version.id });
+				// One batch fetch of every signed asset URL for the project, then a
+				// sync map lookup per clip — replaces the per-asset download fan-out
+				// the export used to fire (one request per timeline entry).
+				const projectUrls = await orpcClient.assets.getProjectUrls({
+					projectId,
+				});
+				const assetUrlById = new Map(
+					projectUrls.map((entry): [string, string] => [
+						entry.assetId,
+						entry.url,
+					]),
+				);
 				const blob = await exportProjectVideo({
 					getAssetUrl: async (assetId) => {
-						const download = await orpcClient.assets.getDownloadUrl({
-							id: assetId,
-						});
-						return download.url;
+						const url = assetUrlById.get(assetId);
+						if (!url) {
+							throw new Error(`No signed URL for asset ${assetId}`);
+						}
+						return url;
 					},
 					onProgress: (progress) => {
 						setState({

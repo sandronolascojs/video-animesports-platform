@@ -2,7 +2,7 @@
 
 import { ChevronsUpDownIcon, LogOutIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
-
+import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
 	DropdownMenu,
@@ -19,7 +19,6 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
-import { AgentAvatar } from "@/components/ui/smoothui/agent-avatar";
 import { authClient } from "@/libs/auth/client";
 import { toast } from "@/libs/toast";
 

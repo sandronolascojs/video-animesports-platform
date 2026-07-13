@@ -1,22 +1,26 @@
 "use client";
 
 import { ProjectStatus, SceneStatus } from "@video-platform-challenge/types";
-import { AlertTriangleIcon, ArrowLeftIcon, XIcon } from "lucide-react";
+import { AlertTriangleIcon, ArrowLeftIcon, RotateCcwIcon } from "lucide-react";
 import Link from "next/link";
 
+import { MainButton } from "@/components/app/main-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { isProjectActive } from "@/feature/studio/hooks/http/use-project";
 import {
-	renderButtonLabel,
-	useRenderExport,
-} from "@/feature/studio/hooks/use-render-export";
+	isProjectActive,
+	useRetryProject,
+} from "@/feature/studio/hooks/http/use-project";
+import { useRenderExport } from "@/feature/studio/hooks/use-render-export";
 import { useStudio } from "@/feature/studio/stores/use-studio";
+import { toast } from "@/libs/toast";
+import { cn } from "@/libs/utils";
 
 const STATUS_LABEL: Record<string, string> = {
 	[ProjectStatus.ASSEMBLING]: "Assembling",
@@ -29,23 +33,31 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 /**
- * Topbar (docs/studio-ui.md §1 diagram): back, title, status badge, Export.
- * Export drives the same `useRenderExport` state machine as the timeline's
- * Render button (front-wiring phase 3, SCOPE item 3's "unify") — disabled
- * while a render is running or until every scene is `video_ready`. Status
- * reads the project row directly (server-authoritative — docs'
+ * Topbar (docs/studio-design-language.md §3e): back, title, status badge,
+ * Export. Export drives the same `useRenderExport` state machine as the
+ * timeline's Render button (front-wiring phase 3, SCOPE item 3's "unify") —
+ * disabled while a render is running or until every scene is `video_ready`.
+ * Status reads the project row directly (server-authoritative — docs'
  * generating-state machine) rather than being re-derived from scene
  * statuses; a project-level `failReason` (docs "error-first: the product
  * must always load and render failures beautifully") surfaces as a banner
  * right below the bar.
+ *
+ * The Agent chat toggle used to live here — it now lives in
+ * `AgentChatSidebar`'s own header (`SidebarTrigger`), since that rail is a
+ * persistent `components/ui/sidebar.tsx` sidebar with its own open/close
+ * control, not a panel this topbar needs to drive. ⌘J (registered in
+ * `StudioChatProvider`) still opens/closes it from anywhere in the Studio.
  */
 export function StudioTopbar() {
 	const { project, orderedScenes } = useStudio();
-	const { canRender, cancel, isRunning, start, state } = useRenderExport();
+	const { canRender, isRunning, start } = useRenderExport();
+	const retryProject = useRetryProject(project.id);
 
 	const hasFailedScene = orderedScenes.some(
 		({ scene }) => scene.status === SceneStatus.FAILED,
 	);
+	const canRetry = project.status === ProjectStatus.FAILED || hasFailedScene;
 	const isActive = isProjectActive(project);
 	const statusVariant =
 		project.status === ProjectStatus.FAILED
@@ -86,46 +98,62 @@ export function StudioTopbar() {
 
 				<Badge
 					variant={statusVariant}
-					className={isGenerating ? "tabular-nums" : undefined}
+					className={cn(isGenerating && "tabular-nums")}
 				>
 					{statusLabel}
 				</Badge>
 
+				{canRetry ? (
+					<Button
+						type="button"
+						size="sm"
+						variant="outline"
+						className="gap-1.5"
+						disabled={retryProject.isPending}
+						onClick={() => {
+							retryProject.mutate(
+								{ id: project.id },
+								{
+									onSuccess: () => {
+										toast.info({
+											title: "Retrying generation",
+											description: "Picking up from where it left off.",
+											icon: <RotateCcwIcon className="size-4" />,
+										});
+									},
+								},
+							);
+						}}
+					>
+						<RotateCcwIcon className="size-3.5" />
+						Retry
+					</Button>
+				) : null}
+
 				<Tooltip>
 					<TooltipTrigger asChild>
-						<span>
-							<Button
+						<span className="inline-flex">
+							<MainButton
 								type="button"
-								variant="outline"
 								size="sm"
 								disabled={isRunning || !canRender}
 								onClick={start}
 							>
-								{renderButtonLabel(state, "Export")}
-							</Button>
+								{isRunning ? (
+									<>
+										<Spinner className="size-4" />
+										<span className="sr-only">Exporting…</span>
+									</>
+								) : (
+									"Export"
+								)}
+							</MainButton>
 						</span>
 					</TooltipTrigger>
 					{!canRender ? (
 						<TooltipContent>All scenes must finish generating</TooltipContent>
 					) : null}
 				</Tooltip>
-
-				{isRunning ? (
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon-sm"
-								aria-label="Cancel export"
-								onClick={cancel}
-							>
-								<XIcon />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent>Cancel export</TooltipContent>
-					</Tooltip>
-				) : null}
 			</div>
 
 			{project.failReason ? (

@@ -1,6 +1,11 @@
 "use client";
 
-import { AnimatePresence, type MotionProps, motion } from "motion/react";
+import {
+	AnimatePresence,
+	type MotionProps,
+	motion,
+	useReducedMotion,
+} from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { cn } from "@/libs/utils/index";
@@ -36,6 +41,7 @@ export function WordRotate({
 	},
 	className,
 }: WordRotateProps) {
+	const shouldReduceMotion = useReducedMotion();
 	const [index, setIndex] = useState(0);
 	const [width, setWidth] = useState<number | undefined>(undefined);
 	const measureRef = useRef<HTMLSpanElement>(null);
@@ -56,6 +62,20 @@ export function WordRotate({
 		}
 	}, [index]);
 
+	// `prefers-reduced-motion`: an instant swap — no slide, no blur, no spring
+	// width tween — instead of re-authoring the motion above.
+	const resolvedMotionProps: MotionProps = shouldReduceMotion
+		? {
+				animate: { opacity: 1 },
+				exit: { opacity: 0 },
+				initial: false,
+				transition: { duration: 0 },
+			}
+		: motionProps;
+	const widthTransition = shouldReduceMotion
+		? { duration: 0 }
+		: { type: "spring" as const, duration: 0.35, bounce: 0 };
+
 	return (
 		<span className="relative inline-block align-bottom">
 			{/* Invisible twin of the current word — the width source. */}
@@ -72,13 +92,13 @@ export function WordRotate({
 			<motion.span
 				className="inline-block overflow-hidden whitespace-pre align-bottom"
 				animate={width !== undefined ? { width } : undefined}
-				transition={{ type: "spring", duration: 0.35, bounce: 0 }}
+				transition={widthTransition}
 			>
 				<AnimatePresence mode="wait">
 					<motion.span
 						key={words[index]}
 						className={cn("inline-block", className)}
-						{...motionProps}
+						{...resolvedMotionProps}
 					>
 						{words[index]}
 					</motion.span>

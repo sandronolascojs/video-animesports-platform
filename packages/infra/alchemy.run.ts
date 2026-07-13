@@ -3,6 +3,9 @@ import alchemy from "alchemy";
 import {
 	AccountApiToken,
 	AccountId,
+	Container,
+	computeWorkerDevDomain,
+	createCloudflareApi,
 	DurableObjectNamespace,
 	Nextjs,
 	R2Bucket,
@@ -26,24 +29,66 @@ const stage: Stage = process.env.STAGE === "prod" ? "prod" : "dev";
 
 /**
  * Everything that differs between stages lives here so the resource
- * definitions below stay identical across dev/prod.
+ * definitions below stay identical across dev/prod. CORS/auth origins are
+ * NOT stage-keyed — they're local-vs-deploy keyed (see `corsOrigins` below),
+ * since a `dev`-stage deploy is just as "real" a Cloudflare deployment as
+ * `prod` and must not get localhost CORS.
  */
-const STAGES: Record<Stage, { bucketName: string; corsOrigins: string[] }> = {
-	dev: {
-		bucketName: "video-platform-dev",
-		corsOrigins: ["http://localhost:3001", "http://localhost:3000"],
-	},
-	prod: {
-		bucketName: "video-platform-prod",
-		corsOrigins: [alchemy.env.CORS_ORIGIN!, alchemy.env.BETTER_AUTH_URL!],
-	},
+const STAGES: Record<Stage, { bucketName: string }> = {
+	dev: { bucketName: "video-platform-dev" },
+	prod: { bucketName: "video-platform-prod" },
 };
 
-const { bucketName, corsOrigins } = STAGES[stage];
+const { bucketName } = STAGES[stage];
 
 const app = await alchemy("video-platform-challenge", { stage });
 
+// `app.local` is true for `alchemy dev` (Miniflare) and false for
+// `alchemy deploy` (real Cloudflare resources) — mirrors the `local` flag
+// plugsy-ai's packages/infra/alchemy.run.ts derives from `app.local` the
+// same way.
+const local = app.local;
+
 const accountId = await AccountId();
+
+// This app has no custom domain: on deploy, `server` and `web` both get
+// Cloudflare-issued `*.workers.dev` URLs. `server`'s own bindings need BOTH
+// `web`'s origin (CORS_ORIGIN / better-auth trustedOrigins) and its OWN url
+// (BETTER_AUTH_URL) — neither is knowable yet at the point `server` is
+// declared: `web` isn't created until after `server` (it binds
+// `server.url`), and a resource can never read its own `.url` while its own
+// bindings are still being built. Alchemy derives a Worker's `url: true`
+// purely from (account workers.dev subdomain, script name) — see
+// `createWorkerUrl` in alchemy/lib/cloudflare/worker-subdomain.ts — with NO
+// dependency on the worker having been deployed yet. And absent an explicit
+// `name` prop, that script name is exactly `Scope#createPhysicalName(id)`
+// lowercased (alchemy/lib/cloudflare/worker.js). Both are public exports, so
+// we call them ourselves to resolve both URLs upfront instead of forcing an
+// explicit `name` (which would risk renaming/replacing an already-deployed
+// Worker) or a circular resource reference.
+// TODO: a custom domain would replace this whole precomputation block with
+// a single stable, hand-written origin string per app.
+const cfApi = local ? null : await createCloudflareApi();
+const serverUrl = cfApi
+	? await computeWorkerDevDomain(
+			cfApi,
+			app.createPhysicalName("server").toLowerCase(),
+		)
+	: null;
+const webUrl = cfApi
+	? await computeWorkerDevDomain(
+			cfApi,
+			app.createPhysicalName("web").toLowerCase(),
+		)
+	: null;
+
+// R2's CORS check is a literal Origin match (S3-compatible), same as the
+// Hono `cors()` origin check server-side (a plain string, not a pattern) —
+// so local dev keeps today's localhost pair unchanged, and deploys (no
+// custom domain) allow the two workers.dev origins resolved above.
+const corsOrigins = local
+	? ["http://localhost:3001", "http://localhost:3000"]
+	: [webUrl!, serverUrl!];
 
 // Trigger payload for a video generation run. Mirrors (by hand — infra and
 // the Worker script are separate TS programs, so this can't `import type`
@@ -110,6 +155,51 @@ export const projectEventsNamespace = DurableObjectNamespace("project-events", {
 	className: "ProjectEventsDO",
 });
 
+// Shared ffmpeg media-ops Container (docs/media-ops-container.md §3): a
+// scale-to-zero box that runs ffmpeg for last-frame extraction and audio
+// extraction. alchemy builds containers/media-ops/Dockerfile and pushes it to
+// the CF container registry on deploy. The concrete `MediaOpsContainer` class
+// lives in apps/server (src/durable/media-ops-container.ts) and is re-exported
+// from src/index.ts so alchemy resolves it by `className` off the compiled
+// worker script — same mechanism as `videoGenerationWorkflow` /
+// `projectEventsNamespace` above, and untyped for the same reason (infra and
+// the Worker script are separate TS programs, so this file can't `import type`
+// the real class; apps/server narrows `env.MEDIA_OPS` to the real class's shape
+// locally — see lib/media-ops.ts's doc comment).
+// `dev.remote: false` → local build via the Docker daemon (Docker Desktop must
+// be running); remote build + push happens on deploy.
+//
+// `build.context` is the MONOREPO ROOT (`../..` from this file's cwd,
+// packages/infra), not just containers/media-ops: that dir is now a bun
+// workspace member whose deps (fastify, tsx, zod) are pinned through the
+// root package.json's `catalog:` protocol, so building its Dockerfile needs
+// the root package.json + lockfile + every workspace's package.json in the
+// build context to resolve them (see the Dockerfile's own header comment +
+// containers/media-ops/Dockerfile.dockerignore for what stays out of that
+// context).
+//
+// MEDIA_OPS_SECRET coordination note: alchemy@0.93.12's `Container()` resource
+// (`ContainerProps` in node_modules/alchemy/lib/cloudflare/container.d.ts) has
+// NO `environment_variables` / `secrets` prop — those only exist on the
+// lower-level `ContainerApplicationProps`/`DeploymentConfiguration` used by
+// the separate `ContainerApplication` resource, not on this `Container()`
+// binding helper. So this file cannot inject MEDIA_OPS_SECRET into the
+// container's process env directly. It IS bound onto the `server` Worker
+// below (`MEDIA_OPS_SECRET: alchemy.secret.env.MEDIA_OPS_SECRET!`), and
+// Durable Objects receive that same Worker env in their constructor, so
+// `MediaOpsContainer` (apps/server/src/durable/media-ops-container.ts)
+// forwards it itself via its constructor: `this.envVars = { MEDIA_OPS_SECRET:
+// env.MEDIA_OPS_SECRET }` — `envVars` is a public property on
+// `@cloudflare/containers`' `Container` base class (see
+// node_modules/@cloudflare/containers/dist/lib/container.d.ts).
+export const mediaOps = await Container("media-ops", {
+	className: "MediaOpsContainer",
+	build: { context: "../..", dockerfile: "containers/media-ops/Dockerfile" },
+	instanceType: "basic",
+	maxInstances: 5,
+	dev: { remote: false },
+});
+
 export const bucket = await R2Bucket("video-storage", {
 	name: bucketName,
 	devDomain: false,
@@ -144,6 +234,11 @@ const storageToken = await AccountApiToken("video-storage-token", {
 	],
 });
 
+// NOTE: the DB stays on the `@neondatabase/serverless` driver for now (works in
+// both miniflare-local and the deployed Worker over its WS/HTTP transport). A
+// Cloudflare Hyperdrive migration (postgres.js over an edge-pooled binding) is
+// deferred — the local `alchemy dev` Hyperdrive proxy connected to Neon without
+// TLS ("connection is insecure"), so it's a future hardening step (owner call).
 export const server = await Worker("server", {
 	cwd: "../../apps/server",
 	entrypoint: "src/index.ts",
@@ -151,20 +246,45 @@ export const server = await Worker("server", {
 	url: true,
 	bindings: {
 		DATABASE_URL: alchemy.secret.env.DATABASE_URL!,
-		CORS_ORIGIN: alchemy.env.CORS_ORIGIN!,
+		// Local dev: unchanged, read from .env (see STAGES doc comment above).
+		// Deploy: no custom domain, so these are the precomputed workers.dev
+		// origins resolved above — `webUrl` for CORS_ORIGIN (also better-auth's
+		// trustedOrigins, packages/auth reuses this same var) and this Worker's
+		// own `serverUrl` for BETTER_AUTH_URL (better-auth's baseURL).
+		CORS_ORIGIN: local ? alchemy.env.CORS_ORIGIN! : webUrl!,
 		BETTER_AUTH_SECRET: alchemy.secret.env.BETTER_AUTH_SECRET!,
-		BETTER_AUTH_URL: alchemy.env.BETTER_AUTH_URL!,
+		BETTER_AUTH_URL: local ? alchemy.env.BETTER_AUTH_URL! : serverUrl!,
 		// Only the server signs URLs, so only the server gets R2 credentials.
 		R2_ACCOUNT_ID: accountId,
 		R2_BUCKET_NAME: bucket.name,
 		R2_ACCESS_KEY_ID: storageToken.accessKeyId,
 		R2_SECRET_ACCESS_KEY: storageToken.secretAccessKey,
-		// packages/kie's auth header. No KIE_CALLBACK_URL and no callBackUrl is
+		// packages/kie's auth header.
 		KIE_API_KEY: alchemy.secret.env.KIE_API_KEY!,
+		// kie.ai posts task-completion callbacks here on deploy. Only a PUBLIC
+		// origin is reachable, so localhost gets "" and `resolveKieCallbackUrl`
+		// falls back to polling (the workflow's poll loop is the source of truth
+		// either way — the callback is an additive trigger). Path mirrors
+		// packages/kie's `KIE_WEBHOOK_PATH`, inlined because this file runs under
+		// node and can't import packages/kie (it pulls in `cloudflare:workers`).
+		KIE_CALLBACK_URL: local ? "" : `${serverUrl}/webhooks/kie`,
 		KIE_WEBHOOK_SECRET: process.env.KIE_WEBHOOK_SECRET ?? "dev-placeholder",
 		AI_GATEWAY_API_KEY: alchemy.secret.env.AI_GATEWAY_API_KEY!,
 		VIDEO_GENERATION_WORKFLOW: videoGenerationWorkflow,
 		PROJECT_EVENTS: projectEventsNamespace,
+		MEDIA_OPS: mediaOps,
+		// Shared secret the MediaOpsContainer validates on every request
+		// (`authorization: Bearer <secret>`) and lib/media-ops.ts sends — see the
+		// `mediaOps` Container declaration above for how (and why not directly
+		// via alchemy) the container process itself gets this same value.
+		MEDIA_OPS_SECRET: alchemy.secret.env.MEDIA_OPS_SECRET!,
+		// Native R2 Workers binding for the same bucket the server already signs
+		// URLs into (owner call). Exposes `env.VIDEO_STORAGE` as an R2Bucket so the
+		// Worker can do native `list()` / `delete(keys)` — used later for R2
+		// cleanup (docs Feature 3). Declared now so it flows into `server.Env`; no
+		// consumer yet. This is orthogonal to the aws4fetch signed-URL path in
+		// packages/storage (which stays for cross-service signed GET/PUT).
+		VIDEO_STORAGE: bucket,
 	},
 	dev: { port: 3000 },
 });

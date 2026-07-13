@@ -58,8 +58,12 @@ export async function searchAssets(
 			and(
 				eq(assets.userId, userId),
 				or(
-					// kind is a pgEnum — cast to text for ILIKE.
-					sql`${assets.kind}::text ilike ${pattern}`,
+					// kind is a pgEnum, not text — Postgres has no ilike overload for
+					// it, so it needs an explicit cast. drizzle's `ilike()` builder
+					// takes any SQL fragment as its column argument, so the cast is
+					// the only hand-written piece; the operator + parameter binding
+					// both stay in the builder.
+					ilike(sql`${assets.kind}::text`, pattern),
 					ilike(projects.title, pattern),
 				),
 			),

@@ -3,6 +3,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 
 import "./globals.css";
 import Providers from "@/components/providers";
+import { cn } from "@/libs/utils";
 
 const jetbrainsMono = JetBrains_Mono({
 	subsets: ["latin"],
@@ -35,7 +36,7 @@ export default function RootLayout({
 		<html
 			lang="en"
 			suppressHydrationWarning
-			className={`${inter.variable} ${jetbrainsMono.variable}`}
+			className={cn(inter.variable, jetbrainsMono.variable)}
 		>
 			<body className="antialiased">
 				<Providers>{children}</Providers>

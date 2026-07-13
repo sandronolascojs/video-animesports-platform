@@ -1,114 +1,111 @@
 # video-platform-challenge
 
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines Next.js, Hono, ORPC, and more.
+An AI sports-anime video generator. A user describes a moment — *"a last-minute
+winning goal"* — and the app plans an episode, generates anime keyframes and
+video clips, and assembles them into a playable, exportable timeline, editable
+by an in-app agent.
 
-## Features
+Bun workspaces + Turborepo monorepo, deployed to Cloudflare via Alchemy.
 
-- **TypeScript** - For type safety and improved developer experience
-- **Next.js** - Full-stack React framework
-- **TailwindCSS** - Utility-first CSS for rapid UI development
-- **Shared UI package** - shadcn/ui primitives live in `packages/ui`
-- **Hono** - Lightweight, performant server framework
-- **oRPC** - End-to-end type-safe APIs with OpenAPI integration
-- **workers** - Runtime environment
-- **Drizzle** - TypeScript-first ORM
-- **PostgreSQL** - Database engine
-- **Authentication** - Better-Auth
-- **Biome** - Linting and formatting
-- **Husky** - Git hooks for code quality
-- **Turborepo** - Optimized monorepo build system
+## Stack
 
-## Getting Started
+- **Frontend** — Next.js (App Router), oRPC client + TanStack Query, Tailwind v4
+  + shadcn/ui, Zustand. Remotion `<Player>` for preview, in-browser export via
+  mediabunny.
+- **Backend** — oRPC on Cloudflare Workers (Hono for the raw `/rpc`, `/agent`,
+  and webhook routes), layered `router → service → repository`. A Durable Object
+  for realtime status (SSE), a Workflow for the multi-step generation pipeline,
+  and a Container (ffmpeg) for last-frame / audio extraction.
+- **Data** — PostgreSQL (Neon) + Drizzle ORM. Cloudflare R2 for media, kept
+  private and served through short-lived signed URLs.
+- **Auth** — better-auth (signed cookie session).
+- **AI** — Vercel AI SDK + AI Gateway (the plan/studio agents and whisper
+  subtitle transcription); kie.ai for `gpt-image-2` keyframes and
+  `seedance-2-mini` video.
+- **Infra** — Alchemy (`packages/infra/alchemy.run.ts`): Worker, Next.js, R2,
+  Durable Object, Workflow, Container.
+- **Tooling** — Biome, Husky, TypeScript, Turborepo.
 
-First, install the dependencies:
+## Structure
 
-```bash
-bun install
+```
+apps/
+  web/          Next.js frontend
+  server/       oRPC API on Cloudflare Workers (router/service/repository, DO, Workflow, Container binding)
+packages/
+  types/        shared enums + constants + the pagination contract (zod)
+  api/          THE contract: zod schemas + oRPC contract — web and server both depend on it
+  db/           Drizzle schema + db instance (Neon)
+  auth/         better-auth setup
+  storage/      R2 signed-URL library
+  kie/          kie.ai provider adapter (gpt-image-2, seedance)
+  ai/           AI foundations: agents, prompt registry, model runtime
+  env/          typed env access
+  infra/        Alchemy deploy definition
+  config/       shared TS / tooling config
+containers/
+  media-ops/    Fastify + ffmpeg container (last-frame extraction, audio)
 ```
 
-## Database Setup
+Package import rules (what may depend on what) live in [`CLAUDE.md`](./CLAUDE.md).
 
-This project uses PostgreSQL with Drizzle ORM.
+## Getting started
 
-1. Make sure you have a PostgreSQL database set up.
-2. Update your `apps/server/.env` file with your PostgreSQL connection details.
+1. Install dependencies:
+   ```bash
+   bun install
+   ```
+2. Create each project's env from its template and fill in the values
+   (see **Environment** below):
+   ```bash
+   cp apps/server/.env.example        apps/server/.env
+   cp apps/web/.env.example           apps/web/.env
+   cp containers/media-ops/.env.example containers/media-ops/.env
+   ```
+3. Push the schema to your database:
+   ```bash
+   bun run db:push
+   ```
+4. Run everything:
+   ```bash
+   bun run dev
+   ```
+   Web → <http://localhost:3001> · API → <http://localhost:3000>
 
-3. Apply the schema to your database:
+`bun run dev` runs `alchemy dev`, which also boots the R2 bucket, Durable
+Object, Workflow, and the media-ops Docker container locally in Miniflare.
 
-```bash
-bun run db:push
-```
+> Editing server code mid-generation restarts the local Worker and kills any
+> in-flight generation workflow — let a run finish, or retry it from the Studio.
 
-Then, run the development server:
+## Environment
 
-```bash
-bun run dev
-```
+Each project keeps its own `.env.example`. Copy it to `.env` and fill it in.
 
-Open [http://localhost:3001](http://localhost:3001) in your browser to see the web application.
-The API is running at [http://localhost:3000](http://localhost:3000).
+- **`apps/server/.env`** — Postgres, auth, kie.ai, AI Gateway, and the shared
+  `MEDIA_OPS_SECRET`. R2 credentials are **not** here: Alchemy provisions them,
+  and the Worker's `VIDEO_STORAGE` / `PROJECT_EVENTS` / `MEDIA_OPS` bindings are
+  Alchemy bindings, not env vars.
+- **`apps/web/.env`** — `NEXT_PUBLIC_SERVER_URL`.
+- **`containers/media-ops/.env`** — port + `MEDIA_OPS_SECRET` (must match the
+  server's; injected by the Worker at runtime locally, supplied by the CI secret
+  on deploy).
 
-## UI Customization
+## Scripts
 
-shadcn/ui primitives live inside the web app at `apps/web/src/components/ui`.
-
-- Change design tokens and global styles in `apps/web/src/app/globals.css`
-- Update primitives in `apps/web/src/components/ui/*`
-- Adjust shadcn aliases or style config in `apps/web/components.json`
-
-### Add more components
-
-Run the shadcn CLI from `apps/web`:
-
-```bash
-cd apps/web && npx shadcn@latest add accordion dialog popover sheet table
-```
-
-Import components like this:
-
-```tsx
-import { Button } from "@/components/ui/button";
-```
+- `bun run dev` — all apps in dev (Alchemy + Next.js + Miniflare + container).
+- `bun run dev:web` / `bun run dev:server` — a single app.
+- `bun run build` — build everything.
+- `bun run check-types` — typecheck every package.
+- `bun run test` — run tests.
+- `bun run check` — Biome format + lint (`--write`).
+- `bun run db:push` / `db:generate` / `db:migrate` / `db:studio` — Drizzle.
+- `bun run deploy` / `deploy:dev` / `destroy` — Alchemy on Cloudflare.
 
 ## Deployment
 
-### Cloudflare via Alchemy
-
-- Target: web + server
-- Dev: bun run dev
-- Deploy: bun run deploy
-- Destroy: bun run destroy
-
-For more details, see the guide on [Deploying to Cloudflare with Alchemy](https://www.better-t-stack.dev/docs/guides/cloudflare-alchemy).
-
-## Git Hooks and Formatting
-
-- Initialize hooks: `bun run prepare`
-- Run checks: `bun run check`
-
-## Project Structure
-
-```
-video-platform-challenge/
-├── apps/
-│   ├── web/         # Frontend application (Next.js)
-│   └── server/      # Backend API (Hono, ORPC)
-├── packages/
-│   ├── ui/          # Shared shadcn/ui components and styles
-│   ├── api/         # API layer / business logic
-│   ├── auth/        # Authentication configuration & logic
-│   └── db/          # Database schema & queries
-```
-
-## Available Scripts
-
-- `bun run dev`: Start all applications in development mode
-- `bun run build`: Build all applications
-- `bun run dev:web`: Start only the web application
-- `bun run dev:server`: Start only the server
-- `bun run check-types`: Check TypeScript types across all apps
-- `bun run db:push`: Push schema changes to database
-- `bun run db:generate`: Generate database client/types
-- `bun run db:migrate`: Run database migrations
-- `bun run db:studio`: Open database studio UI
-- `bun run check`: Run Biome formatting and linting
+Cloudflare via Alchemy (`packages/infra/alchemy.run.ts`) — `bun run deploy` (or
+`deploy:dev`). CI (`.github/workflows/ci.yml`) typechecks and tests, prepares
+the API, migrates the database, and runs `deploy:dev` on the `development`
+branch. Deployed URLs use Cloudflare's `*.workers.dev` domains (no custom
+domain).

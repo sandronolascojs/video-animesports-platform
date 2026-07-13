@@ -10,7 +10,7 @@ import {
 } from "@video-platform-challenge/types";
 import z from "zod";
 
-import { assetSchema } from "./asset";
+import { assetKindSchema, assetSchema } from "./asset";
 import { sceneSchema, timelineEntrySchema } from "./scene";
 import { versionSchema } from "./version";
 
@@ -28,6 +28,14 @@ export const subtitleLanguageSchema = z.enum([
  * Structurally mirrors packages/types `SubtitleStyle` exactly. Declared
  * ONCE here and reused by `updateSubtitleStyle`'s input AND the project
  * output — never redeclared.
+ *
+ * `lineHeight`/`maxWidthPercent`/`textShadow`/`textShadowIntensity` (studio
+ * quality pass §3, controls-only — no per-cue timing) extend the original
+ * size/weight/color/outline/background/position set. Both `composition.tsx`'s
+ * `SubtitleOverlay` (live Player) and `subtitle-canvas.ts`'s `drawSubtitle`
+ * (export burn-in) fall back to their previous hardcoded values when these
+ * are unset, so existing projects (and the `null` `subtitleStyle` default)
+ * render byte-identical to before this change.
  */
 export const subtitleStyleSchema = z.object({
 	font: z.string().optional(),
@@ -37,6 +45,14 @@ export const subtitleStyleSchema = z.object({
 	outlineColor: z.string().optional(),
 	backgroundColor: z.string().optional(),
 	position: z.string().optional(),
+	/** Multiplier over `fontSize`, e.g. `1.2` — mirrors CSS `line-height`'s unitless form. */
+	lineHeight: z.number().positive().optional(),
+	/** Percent (1-100) of the safe content box — mirrors the overlay's `maxWidth: "N%"`. */
+	maxWidthPercent: z.number().min(1).max(100).optional(),
+	/** Drop-shadow toggle, independent of the always-on outline stroke. */
+	textShadow: z.boolean().optional(),
+	/** Percent (0-100) driving the shadow's blur radius + opacity when `textShadow` is on. */
+	textShadowIntensity: z.number().min(0).max(100).optional(),
 });
 
 // The user's main story description — the core creation input (docs §1).
@@ -83,9 +99,16 @@ export const projectSummarySchema = z.object({
 	templateKey: templateKeySchema,
 	aspectRatio: aspectRatioSchema,
 	createdAt: z.date(),
-	// First ready keyframe/character-sheet asset, used as the card
-	// thumbnail; null until the project has produced at least one asset.
+	// The card's preview asset: first ready scene video → render → keyframe /
+	// character sheet; null until the project has produced any asset.
 	thumbnailAssetId: z.string().nullable(),
+	// Which kind `thumbnailAssetId` points at, so the card plays it as video or
+	// paints it as an image. Null when there's no preview yet.
+	thumbnailKind: assetKindSchema.nullable(),
+	// Signed GET URL for `thumbnailAssetId`'s R2 object, minted server-side so
+	// the card renders with zero extra round-trips. Null when there's no
+	// preview yet. R2 stays private — only this short-lived URL is exposed.
+	thumbnailUrl: z.string().nullable(),
 });
 
 /**
@@ -165,6 +188,10 @@ export const extendProjectInputSchema = z.object({
 		.default(1),
 });
 
+export const retryProjectInputSchema = z.object({
+	id: z.string(),
+});
+
 export const deleteProjectInputSchema = z.object({
 	id: z.string(),
 });
@@ -198,4 +225,5 @@ export type UpdateSubtitleStyleInput = z.infer<
 >;
 export type UpdateLanguagesInput = z.infer<typeof updateLanguagesInputSchema>;
 export type ExtendProjectInput = z.infer<typeof extendProjectInputSchema>;
+export type RetryProjectInput = z.infer<typeof retryProjectInputSchema>;
 export type DeleteProjectInput = z.infer<typeof deleteProjectInputSchema>;

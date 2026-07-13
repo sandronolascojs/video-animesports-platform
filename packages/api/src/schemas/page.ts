@@ -29,9 +29,14 @@ export const projectPageItemSchema = z.object({
 	status: projectStatusSchema,
 	templateKey: templateKeySchema,
 	createdAt: z.date(),
-	// First READY scene video (falling back to the final render) — the
-	// card's looping preview; null until the project has produced one.
+	// First READY scene video → final render → first keyframe still — the
+	// card's own preview; null until the project has produced any media.
 	previewAssetId: z.string().nullable(),
+	// Which kind `previewAssetId` points at, so the card knows to play it as a
+	// video or paint it as an image. Null when there's no preview yet.
+	previewKind: assetKindSchema.nullable(),
+	// Signed GET URL for `previewAssetId` (server-minted, no extra round-trip).
+	previewUrl: z.string().nullable(),
 });
 
 export const projectsPageOutputSchema = createPaginatedResponseSchema(
@@ -55,8 +60,11 @@ export const assetPageItemSchema = z.object({
 	projectTitle: z.string().nullable(),
 	projectTemplateKey: templateKeySchema,
 	// The owning scene's prompt when the asset hangs off a scene (keyframes,
-	// scene videos, speech) — the modal's "what is this" copy.
+	// scene videos) — the modal's "what is this" copy.
 	scenePrompt: z.string().nullable(),
+	// Signed GET URL for this asset's R2 object (server-minted, no extra
+	// round-trip). Null when the asset has no r2Key yet.
+	downloadUrl: z.string().nullable(),
 });
 
 export const assetsPageOutputSchema =

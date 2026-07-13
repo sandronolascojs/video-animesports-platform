@@ -66,6 +66,20 @@ async function kieFetch<T>(
 	}
 
 	if (!response.ok || !body || body.code !== 200) {
+		// Surface the REAL rejection reason. Downstream only keeps the numeric
+		// fail code (lib/fail-reason.ts renders "(kie 400)"), so kie's own `msg`
+		// — the actionable detail (a rejected prompt, an unreachable input_url,
+		// a bad param) — would otherwise vanish. Log the full body once here so
+		// the cause is visible in server logs (docs/studio-fixes-backlog.md #6).
+		console.error("[kie] request failed", {
+			path,
+			taskId,
+			httpStatus: response.status,
+			code: body?.code,
+			msg: body?.msg,
+			// Truncated so a huge/HTML error page can't flood the log.
+			body: bodyText.slice(0, 1000),
+		});
 		throw new KieError(
 			body?.msg ?? `kie.ai request failed (HTTP ${response.status})`,
 			{

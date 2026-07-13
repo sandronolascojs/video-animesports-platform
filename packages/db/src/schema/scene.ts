@@ -1,4 +1,12 @@
-import { index, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import type { SpeechCue } from "@video-platform-challenge/types";
+import {
+	index,
+	integer,
+	jsonb,
+	pgTable,
+	text,
+	timestamp,
+} from "drizzle-orm/pg-core";
 import { sceneStatusEnum } from "../shared/enums";
 import { id } from "../shared/id";
 import { tenantIsolationPolicy } from "../shared/rls";
@@ -19,11 +27,13 @@ export const scenes = pgTable(
 			.references(() => user.id, { onDelete: "cascade" }),
 		title: text("title"),
 		prompt: text("prompt").notNull(),
-		// Audio-language spoken line, delivered to kie's TTS (docs §5b).
+		// Audio-language spoken line — Seedance speaks it natively in the scene
+		// video (`generate_audio: true` + the prompt's dialogue clause, docs
+		// studio-fixes-backlog.md).
 		dialogue: text("dialogue"),
-		// Name of the plan character delivering `dialogue` — resolves the
-		// character's fixed voice (gender lives in projects.plan.characters).
-		// Null when the scene is silent or the line is ensemble/off-screen.
+		// Name of the plan character delivering `dialogue` — surfaced in the
+		// video prompt for clarity. Null when the scene is silent or the line
+		// is ensemble/off-screen.
 		speakerName: text("speaker_name"),
 		// Subtitle-language caption text, burned in at render time (docs §5b).
 		subtitleText: text("subtitle_text"),
@@ -42,11 +52,16 @@ export const scenes = pgTable(
 		videoAssetId: text("video_asset_id").references(() => assets.id, {
 			onDelete: "set null",
 		}),
-		// TTS dialogue track.
-		audioAssetId: text("audio_asset_id").references(() => assets.id, {
-			onDelete: "set null",
-		}),
 		failReason: text("fail_reason"),
+		// Real, speech-timed subtitle cues (docs media-ops-container.md Feature
+		// 2) — populated best-effort by `generation.service.ts::
+		// extractAndStoreSceneSubtitles` from the ACTUAL spoken audio via kie's
+		// ElevenLabs Scribe STT, once per scene right after its video ingests.
+		// Null until that step runs/succeeds (never generated for a silent
+		// scene) — `apps/web`'s subtitle-cues.ts falls back to its word-count
+		// ESTIMATE whenever this is null/empty, so nothing regresses for an
+		// older or STT-skipped scene.
+		speechCues: jsonb("speech_cues").$type<SpeechCue[]>(),
 		createdAt: timestamp("created_at").defaultNow().notNull(),
 		updatedAt: timestamp("updated_at")
 			.defaultNow()

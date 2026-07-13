@@ -243,7 +243,7 @@ describe("buildSceneVideoPrompt", () => {
 		expect(prompt).toContain("One single continuous shot");
 	});
 
-	test("omits the spoken-dialogue clause when no dialogue/hasReferenceAudio args are passed", () => {
+	test("omits the spoken-dialogue clause when no dialogue is passed", () => {
 		const prompt = buildSceneVideoPrompt(
 			STYLE_BLOCK,
 			cinematography,
@@ -252,40 +252,38 @@ describe("buildSceneVideoPrompt", () => {
 		expect(prompt).not.toContain("Spoken dialogue:");
 	});
 
-	test("includes the exact lip-sync wording when dialogue is present and reference audio is being sent", () => {
+	test("includes the exact spoken-aloud wording when dialogue is present", () => {
 		const prompt = buildSceneVideoPrompt(
 			STYLE_BLOCK,
 			cinematography,
 			"Kaito strikes the penalty into the top corner.",
 			"Take this, keeper!",
-			true,
-		);
-		expect(prompt).toContain(
-			'Spoken dialogue: the character speaks these exact words, lip-synced to the provided reference audio: "Take this, keeper!"',
-		);
-	});
-
-	test("includes the exact spoken-aloud fallback wording when dialogue is present but reference audio is not being sent", () => {
-		const prompt = buildSceneVideoPrompt(
-			STYLE_BLOCK,
-			cinematography,
-			"Kaito strikes the penalty into the top corner.",
-			"Take this, keeper!",
-			false,
 		);
 		expect(prompt).toContain(
 			'Spoken dialogue: the character speaks these exact words aloud in the scene: "Take this, keeper!"',
 		);
-		expect(prompt).not.toContain("lip-synced to the provided reference audio");
 	});
 
-	test("omits the spoken-dialogue clause when dialogue is blank even if reference audio is being sent", () => {
+	test("prefixes the dialogue clause with the speaker name when given", () => {
+		const prompt = buildSceneVideoPrompt(
+			STYLE_BLOCK,
+			cinematography,
+			"Kaito strikes the penalty into the top corner.",
+			"Take this, keeper!",
+			"Kaito",
+		);
+		expect(prompt).toContain(
+			'Spoken dialogue: the character (Kaito) speaks these exact words aloud in the scene: "Take this, keeper!"',
+		);
+	});
+
+	test("omits the spoken-dialogue clause when dialogue is blank even if a speaker name is given", () => {
 		const prompt = buildSceneVideoPrompt(
 			STYLE_BLOCK,
 			cinematography,
 			"Kaito strikes the penalty into the top corner.",
 			"   ",
-			true,
+			"Kaito",
 		);
 		expect(prompt).not.toContain("Spoken dialogue:");
 	});
@@ -300,7 +298,7 @@ describe("buildSceneVideoPrompt", () => {
 			cinematography,
 			"A".repeat(1000),
 			"D".repeat(500),
-			true,
+			"Kaito",
 		);
 		expect(prompt.length).toBeLessThanOrEqual(6000);
 		expect(prompt).toContain(hugeStyleBlock);

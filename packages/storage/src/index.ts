@@ -97,8 +97,16 @@ export interface HeadObjectResult {
 	contentType: string | null;
 }
 
+export interface DeleteObjectsByPrefixResult {
+	/** Number of object keys submitted for deletion across all batches. */
+	deleted: number;
+}
+
 const MIN_PART_NUMBER = 1;
 const MAX_PART_NUMBER = 10000;
+
+// S3 `DeleteObjects` caps a single request at 1000 keys.
+const MAX_KEYS_PER_DELETE = 1000;
 
 function getClient() {
 	return new AwsClient({
@@ -109,8 +117,12 @@ function getClient() {
 	});
 }
 
+function bucketUrl() {
+	return `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_BUCKET_NAME}`;
+}
+
 function objectUrl(key: string) {
-	return `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.R2_BUCKET_NAME}/${key}`;
+	return `${bucketUrl()}/${key}`;
 }
 
 function assertValidKey(key: string) {
@@ -163,6 +175,23 @@ function escapeXml(value: string): string {
 		.replaceAll("&", "&amp;")
 		.replaceAll("<", "&lt;")
 		.replaceAll(">", "&gt;");
+}
+
+/**
+ * Inverse of `escapeXml` for the handful of entities S3-compatible XML uses in
+ * `<Key>` values. Object keys returned by `ListObjectsV2` come back XML-escaped
+ * (e.g. `&amp;`); this restores the literal key so it can be re-escaped cleanly
+ * into the `DeleteObjects` request body. For this app's own keys (cuid2 ids +
+ * hex UUIDs, no reserved chars) it's an identity, but robust for any key R2
+ * hands back.
+ */
+function unescapeXml(value: string): string {
+	return value
+		.replaceAll("&lt;", "<")
+		.replaceAll("&gt;", ">")
+		.replaceAll("&quot;", '"')
+		.replaceAll("&apos;", "'")
+		.replaceAll("&amp;", "&");
 }
 
 function buildCompleteMultipartUploadXml(parts: UploadedPart[]): string {
@@ -479,4 +508,106 @@ export async function headObject({
 		size: contentLength ? Number(contentLength) : 0,
 		contentType: response.headers.get("content-type"),
 	};
+}
+
+function assertNonEmptyPrefix(prefix: string) {
+	// An empty prefix would list — and then delete — the ENTIRE bucket. Guard
+	// it here so a caller bug (e.g. a blank projectId) can never wipe every
+	// user's objects.
+	if (prefix.length === 0) {
+		throw new Error(
+			"Prefix must not be empty (refusing to enumerate the entire bucket)",
+		);
+	}
+	if (prefix.startsWith("/")) {
+		throw new Error("Prefix must not start with a leading slash");
+	}
+	if (prefix.includes("..")) {
+		throw new Error('Prefix must not contain path traversal segments ("..")');
+	}
+}
+
+/** Matches every `<Key>…</Key>` (namespace-prefix tolerant) in a listing. */
+const LIST_KEY_PATTERN = /<(?:\w+:)?Key>([^<]*)<\/(?:\w+:)?Key>/g;
+
+function extractObjectKeys(xml: string): string[] {
+	return [...xml.matchAll(LIST_KEY_PATTERN)].map((match) =>
+		unescapeXml(match[1] ?? ""),
+	);
+}
+
+function buildDeleteObjectsXml(keys: string[]): string {
+	const objectsXml = keys
+		.map((key) => `<Object><Key>${escapeXml(key)}</Key></Object>`)
+		.join("");
+	// Quiet mode: R2 returns only per-object errors, not a receipt per key.
+	return `<?xml version="1.0" encoding="UTF-8"?><Delete>${objectsXml}<Quiet>true</Quiet></Delete>`;
+}
+
+/**
+ * Lists every object under `prefix` (S3 `ListObjectsV2`, following
+ * `ContinuationToken` pagination) and deletes them via S3 `DeleteObjects` in
+ * batches of at most 1000 keys. Signed the same way as every other call here:
+ * `getClient().fetch` runs SigV4 with the payload hash aws4fetch computes, so
+ * no `Content-MD5` (unavailable via Web Crypto) is needed.
+ *
+ * Used to purge all of a deleted project's assets from R2 so nothing is
+ * orphaned. Returns the count of keys submitted for deletion; on an empty
+ * prefix it deletes nothing and returns `{ deleted: 0 }`.
+ */
+export async function deleteObjectsByPrefix(
+	prefix: string,
+): Promise<DeleteObjectsByPrefixResult> {
+	assertNonEmptyPrefix(prefix);
+
+	const client = getClient();
+	const keys: string[] = [];
+	let continuationToken: string | undefined;
+
+	do {
+		const listUrl = new URL(bucketUrl());
+		listUrl.searchParams.set("list-type", "2");
+		listUrl.searchParams.set("prefix", prefix);
+		if (continuationToken) {
+			listUrl.searchParams.set("continuation-token", continuationToken);
+		}
+
+		const response = await client.fetch(listUrl, { method: "GET" });
+		const body = await response.text();
+		if (!response.ok) {
+			throw new Error(
+				`Failed to list objects for prefix "${prefix}": ${response.status} ${body}`,
+			);
+		}
+
+		keys.push(...extractObjectKeys(body));
+
+		const isTruncated = extractXmlTagValue(body, "IsTruncated") === "true";
+		continuationToken = isTruncated
+			? extractXmlTagValue(body, "NextContinuationToken")
+			: undefined;
+	} while (continuationToken);
+
+	let deleted = 0;
+	for (let start = 0; start < keys.length; start += MAX_KEYS_PER_DELETE) {
+		const batch = keys.slice(start, start + MAX_KEYS_PER_DELETE);
+
+		const deleteUrl = new URL(bucketUrl());
+		deleteUrl.searchParams.set("delete", "");
+
+		const response = await client.fetch(deleteUrl, {
+			method: "POST",
+			headers: { "content-type": "application/xml" },
+			body: buildDeleteObjectsXml(batch),
+		});
+		if (!response.ok) {
+			throw new Error(
+				`Failed to delete objects for prefix "${prefix}": ${response.status} ${await response.text()}`,
+			);
+		}
+
+		deleted += batch.length;
+	}
+
+	return { deleted };
 }

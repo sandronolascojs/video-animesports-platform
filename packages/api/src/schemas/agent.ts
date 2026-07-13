@@ -34,15 +34,17 @@ export const agentHistoryInputSchema = z.object({
 
 export const agentHistoryOutputSchema = z.array(agentMessageSchema);
 
-// The sidebar Director composer: a free-text instruction to the studio agent.
+// The base shape for a free-text instruction to the studio agent.
 export const agentComposerInputSchema = z.object({
 	prompt: z.string().trim().min(1).max(2000),
 });
 
-// The Studio floating dock: the same instruction plus how many scenes a
-// generate-shaped request should add (the dock's scenes dropdown). sceneCount's
-// .default() means its input type is optional but its output is a guaranteed
-// number — bind form state to the *Form* (input) type, submit handlers get the output.
+// The rail's `AgentChatComposer` (docs/studio-design-language.md §3d — the
+// Studio's only chat input): the same instruction plus how many scenes a
+// generate-shaped request should add (the composer's scene-count pill).
+// sceneCount's .default() means its input type is optional but its output is
+// a guaranteed number — bind form state to the *Form* (input) type, submit
+// handlers get the output.
 export const studioDockInputSchema = agentComposerInputSchema.extend({
 	sceneCount: z
 		.number()

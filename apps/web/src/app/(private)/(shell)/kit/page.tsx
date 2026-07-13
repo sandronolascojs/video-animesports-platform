@@ -2,8 +2,6 @@
 
 import { Clapperboard, Film, Images, Sparkles } from "lucide-react";
 import { useState } from "react";
-
-import { PixelField } from "@/components/effects/pixel-field";
 import {
 	ActionButton,
 	AIDock,
@@ -11,9 +9,10 @@ import {
 	JewelIcon,
 	TemplateCard,
 	TemplateCardFan,
-} from "@/components/kit";
-import { SubtitleLanguageSelector } from "@/components/kit/selectors/subtitle-language-selector";
-import { VoiceLanguageSelector } from "@/components/kit/selectors/voice-language-selector";
+} from "@/components/app";
+import { SubtitleLanguageSelector } from "@/components/app/selectors/subtitle-language-selector";
+import { VoiceLanguageSelector } from "@/components/app/selectors/voice-language-selector";
+import { PixelField } from "@/components/effects/pixel-field";
 import { AspectRatioSelector } from "@/feature/home/components/aspect-ratio-selector";
 import { usePlatform } from "@/hooks/use-platform";
 

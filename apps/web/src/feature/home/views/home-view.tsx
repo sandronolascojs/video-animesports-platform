@@ -15,10 +15,10 @@ import {
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
-import { AIDock, AIDockInput } from "@/components/kit/ai-dock";
-import { AppLogo } from "@/components/kit/app-logo";
-import { TemplateCard } from "@/components/kit/template-card";
-import { TemplateCardFan } from "@/components/kit/template-card-fan";
+import { AIDock, AIDockInput } from "@/components/app/ai-dock";
+import { AppLogo } from "@/components/app/app-logo";
+import { TemplateCard } from "@/components/app/template-card";
+import { TemplateCardFan } from "@/components/app/template-card-fan";
 import { DitherShader } from "@/components/ui/dither-shader";
 import { WordRotate } from "@/components/ui/word-rotate";
 import { FOCUS_COMPOSER_EVENT } from "@/constants/app.constants";
@@ -102,7 +102,7 @@ export function HomeView() {
 	const sceneCount = watch("sceneCount") ?? INITIAL_SCENE_COUNT;
 
 	const [focusSignal, setFocusSignal] = useState(0);
-	const { hoveredKey, onHoverChange, select, selectedKey } = useTemplateGhost();
+	const { hoveredKey, onHoverChange } = useTemplateGhost();
 
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const heroRef = useRef<HTMLElement>(null);
@@ -232,13 +232,13 @@ export function HomeView() {
 
 	// Shared by the hero fan (adds a focus bump) and the sections' Generate
 	// pills (no focus — focusing an offscreen input would yank the smooth
-	// scroll back to the top instantly).
+	// scroll back to the top instantly). A click only loads the prompt into
+	// the composer; it never marks the card selected (owner call).
 	const commitTemplateValues = (key: TemplateKey) => {
 		const template = SPORT_TEMPLATES.find((candidate) => candidate.key === key);
 		if (!template) {
 			return;
 		}
-		select(key);
 		setValue("templateKey", key);
 		if (description.trim().length === 0) {
 			setValue("description", template.examplePrompt);
@@ -394,7 +394,6 @@ export function HomeView() {
 									image={`/templates/${template.key}-v2.png`}
 									from={template.gradient.from}
 									to={template.gradient.to}
-									selected={selectedKey === template.key}
 									onHoverChange={onHoverChange(template.key)}
 									onSelect={() => commitTemplate(template.key)}
 								/>

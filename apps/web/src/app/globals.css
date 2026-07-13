@@ -300,6 +300,20 @@
 		background: var(--muted-foreground);
 	}
 
+	/*
+	 * Fully hidden scrollbar — keeps `overflow`/scrolling functional, just
+	 * never paints a track/thumb (docs/studio-quality-pass.md §2a). Unlike
+	 * `.scrollbar-hide` above, this does NOT force an `overflow-x`/`overflow-y`
+	 * direction, so it's safe on containers that scroll vertically (e.g. the
+	 * Scenes list) as well as the timeline's horizontal strip.
+	 */
+	.scrollbar-none {
+		scrollbar-width: none; /* Firefox */
+	}
+	.scrollbar-none::-webkit-scrollbar {
+		display: none; /* Chrome, Safari and Opera */
+	}
+
 	/* Scrollbar track transparent */
 	.scrollbar-track-transparent::-webkit-scrollbar-track {
 		background: transparent;
@@ -560,4 +574,19 @@
 @utility film-grain {
 	background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 	background-size: 160px 160px;
+}
+
+/*
+ * App-wide: never paint a scrollbar (keep scrolling fully functional) —
+ * a clean consumer look across Chrome, Safari and Firefox (owner request
+ * 2026-07-12). Unlayered so it wins over the `.scrollbar-thin`/`.scrollbar-none`
+ * utilities and the browser default. Scroll (wheel/trackpad/drag) is untouched;
+ * only the visible track/thumb is removed everywhere.
+ */
+* {
+	scrollbar-width: none; /* Firefox */
+	-ms-overflow-style: none; /* legacy Edge */
+}
+*::-webkit-scrollbar {
+	display: none; /* Chrome, Safari, Opera */
 }

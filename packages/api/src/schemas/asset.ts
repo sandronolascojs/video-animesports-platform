@@ -17,8 +17,8 @@ export const assetMetadataSchema = z.object({
 /**
  * An asset row, MINUS `r2Key` and `source` (the owning generation_tasks
  * row's id — see that column's doc comment): R2 stays private — the only
- * sanctioned way to reach the underlying object is `assets.getDownloadUrl`,
- * which mints a short-lived signed GET URL server-side. Never expose the raw
+ * sanctioned way to reach the underlying object is `assets.getProjectUrls`,
+ * which mints short-lived signed GET URLs server-side. Never expose the raw
  * R2 key to the client.
  */
 export const assetSchema = z.object({
@@ -36,14 +36,17 @@ export const assetSchema = z.object({
 	updatedAt: z.date(),
 });
 
-export const getAssetDownloadUrlInputSchema = z.object({
-	id: z.string(),
+export const getProjectAssetUrlsInputSchema = z.object({
+	projectId: z.string(),
 });
 
-export const assetDownloadUrlSchema = z.object({
+export const projectAssetUrlSchema = z.object({
+	assetId: z.string(),
 	url: z.string(),
 	expiresAt: z.date(),
 });
+
+export const projectAssetUrlsSchema = z.array(projectAssetUrlSchema);
 
 /**
  * Issues a presigned PUT for the browser-side Mediabunny remux/export flow
@@ -75,9 +78,9 @@ export type AssetKindValue = z.infer<typeof assetKindSchema>;
 export type AssetStatusValue = z.infer<typeof assetStatusSchema>;
 export type AssetMetadataValue = z.infer<typeof assetMetadataSchema>;
 export type Asset = z.infer<typeof assetSchema>;
-export type GetAssetDownloadUrlInput = z.infer<
-	typeof getAssetDownloadUrlInputSchema
+export type GetProjectAssetUrlsInput = z.infer<
+	typeof getProjectAssetUrlsInputSchema
 >;
-export type AssetDownloadUrl = z.infer<typeof assetDownloadUrlSchema>;
+export type ProjectAssetUrls = z.infer<typeof projectAssetUrlsSchema>;
 export type CreateUploadInput = z.infer<typeof createUploadInputSchema>;
 export type CreateUploadOutput = z.infer<typeof createUploadOutputSchema>;

@@ -8,7 +8,6 @@ import {
 	SortDirection,
 } from "@video-platform-challenge/types";
 import {
-	AudioLinesIcon,
 	ClapperboardIcon,
 	ImageIcon,
 	ImagesIcon,
@@ -18,12 +17,12 @@ import { useRouter } from "next/navigation";
 import { useQueryStates } from "nuqs";
 import { useEffect } from "react";
 
-import { ErrorStateCard } from "@/components/kit/error-state-card";
-import { FrostedImage, FrostedVideo } from "@/components/kit/frosted-media";
-import { JewelIcon } from "@/components/kit/jewel-icon";
-import { MediaCard, MediaCardSkeleton } from "@/components/kit/media-card";
-import { FilterRow, ResourceFilters } from "@/components/kit/resource-filters";
-import { ResourceLayout } from "@/components/kit/resource-layout";
+import { ErrorStateCard } from "@/components/app/error-state-card";
+import { FrostedImage, FrostedVideo } from "@/components/app/frosted-media";
+import { JewelIcon } from "@/components/app/jewel-icon";
+import { MediaCard, MediaCardSkeleton } from "@/components/app/media-card";
+import { FilterRow, ResourceFilters } from "@/components/app/resource-filters";
+import { ResourceLayout } from "@/components/app/resource-layout";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -44,7 +43,6 @@ import { useAssetsPage } from "@/feature/assets/hooks/http/use-assets-page";
 // studio owns signed asset URLs).
 import { EmptyStateCard } from "@/feature/home/components/dashboard-sections";
 import { SPORT_TEMPLATES } from "@/feature/home/sport-templates";
-import { useAssetUrl } from "@/feature/studio/hooks/http/use-asset-url";
 import { assetsPageParams } from "@/libs/pagination/search-params";
 import { toast } from "@/libs/toast";
 
@@ -53,7 +51,6 @@ const ASSET_KIND_ICON: Record<string, LucideIcon> = {
 	location_sheet: ImageIcon,
 	keyframe: ImageIcon,
 	scene_video: ClapperboardIcon,
-	scene_audio: AudioLinesIcon,
 	render: ClapperboardIcon,
 };
 
@@ -66,7 +63,6 @@ const KIND_FILTER_OPTIONS = [
 	{ label: "Location sheet", value: "location_sheet" },
 	{ label: "Keyframe", value: "keyframe" },
 	{ label: "Scene video", value: "scene_video" },
-	{ label: "Scene audio", value: "scene_audio" },
 	{ label: "Render", value: "render" },
 ];
 
@@ -83,25 +79,20 @@ function AssetMedia({
 	item: AssetPageItem;
 	controls?: boolean;
 }) {
-	const { data: signed } = useAssetUrl(item.id);
 	const Icon = ASSET_KIND_ICON[item.kind] ?? ImageIcon;
 
 	// Frosted wells: portrait/9:16 media renders contained over a blurred
 	// cover copy of itself (chat-input glass language) — the well stays 16:9
-	// everywhere.
-	if (signed?.url && IMAGE_KINDS.has(item.kind)) {
-		return <FrostedImage src={signed.url} alt={kindLabel(item.kind)} />;
+	// everywhere. The signed URL is bundled on the page item (server-minted).
+	if (item.downloadUrl && IMAGE_KINDS.has(item.kind)) {
+		return <FrostedImage src={item.downloadUrl} alt={kindLabel(item.kind)} />;
 	}
-	if (signed?.url && VIDEO_KINDS.has(item.kind)) {
-		return <FrostedVideo src={signed.url} controls={controls} />;
+	if (item.downloadUrl && VIDEO_KINDS.has(item.kind)) {
+		return <FrostedVideo src={item.downloadUrl} controls={controls} />;
 	}
 	return (
 		<div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
 			<Icon className="size-6 text-muted-foreground/60" />
-			{signed?.url && item.kind === "scene_audio" ? (
-				// biome-ignore lint/a11y/useMediaCaption: generated speech has no caption track.
-				<audio src={signed.url} controls className="w-4/5" />
-			) : null}
 		</div>
 	);
 }

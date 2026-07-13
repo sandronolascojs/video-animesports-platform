@@ -4,7 +4,10 @@ import type {
 	SubtitleStyle,
 	TimelineEntry,
 } from "@video-platform-challenge/types";
-import { and, asc, count, desc, eq, gte, sql } from "drizzle-orm";
+import { AssetKind } from "@video-platform-challenge/types";
+import { and, asc, count, desc, eq, gte } from "drizzle-orm";
+
+import * as assetRepository from "./asset.repository";
 
 export type ProjectRow = typeof projects.$inferSelect;
 export type NewProjectRow = typeof projects.$inferInsert;
@@ -160,8 +163,18 @@ export async function deleteById(
 
 /**
  * Paginated card rows for the /projects page. `previewAssetId` is the
- * project's first READY scene video (falling back to the final render) via a
- * correlated subquery — one query, no per-row round trips.
+ * project's first READY scene video, falling back to the final render, then to
+ * the first keyframe still (so a project mid-generation shows its own first
+ * frame, never the generic template art). `previewKind` tells the card whether
+ * to play it as video or paint it as an image. Resolved with the SAME batched
+ * `asset.repository.ts::findThumbnailsByProjectIds` DISTINCT ON query that
+ * `project.service.ts::list` already uses for its summary cards — one query
+ * for the whole page of project ids, mapped onto each row in JS afterwards,
+ * no correlated per-row subquery. Passed an explicit 3-kind `candidateKinds`
+ * (scene_video/render/keyframe) so this keeps its narrower fallback instead
+ * of `findThumbnailsByProjectIds`' character-sheet-inclusive default — that
+ * default is right for `list`'s summary cards but would change this
+ * function's rows/order if inherited silently.
  */
 export async function pageProjects(
 	tx: UserScopedTx,
@@ -175,28 +188,18 @@ export async function pageProjects(
 		templateKey?: ProjectRow["templateKey"];
 	},
 ) {
-	const previewAssetId = sql<string | null>`(
-		select a.id from assets a
-		where a.project_id = ${projects.id}
-			and a.status = 'ready'
-			and a.kind in ('scene_video', 'render')
-		order by case a.kind when 'scene_video' then 0 else 1 end, a.created_at asc
-		limit 1
-	)`;
-
 	const orderColumn =
 		query.sortBy === "title" ? projects.title : projects.createdAt;
 	const orderBy =
 		query.sortDirection === "asc" ? asc(orderColumn) : desc(orderColumn);
 
-	const items = await tx
+	const rows = await tx
 		.select({
 			id: projects.id,
 			title: projects.title,
 			status: projects.status,
 			templateKey: projects.templateKey,
 			createdAt: projects.createdAt,
-			previewAssetId,
 		})
 		.from(projects)
 		.where(
@@ -211,6 +214,25 @@ export async function pageProjects(
 		.orderBy(orderBy)
 		.limit(query.pageSize)
 		.offset((query.page - 1) * query.pageSize);
+
+	const previews = await assetRepository.findThumbnailsByProjectIds(
+		tx,
+		userId,
+		rows.map((row) => row.id),
+		[AssetKind.SCENE_VIDEO, AssetKind.RENDER, AssetKind.KEYFRAME],
+	);
+
+	const items = rows.map((row) => {
+		const preview = previews.get(row.id);
+		return {
+			...row,
+			previewAssetId: preview?.id ?? null,
+			previewKind: preview?.kind ?? null,
+			// Internal — the service signs `previewUrl` from this then DROPs it;
+			// r2Key never reaches the client.
+			previewR2Key: preview?.r2Key ?? null,
+		};
+	});
 
 	const [totalRow] = await tx
 		.select({ total: count() })

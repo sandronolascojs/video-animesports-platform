@@ -20,7 +20,6 @@ const KIND_SEGMENT: Record<AssetKind, string> = {
 	location_sheet: "sheets",
 	keyframe: "keyframes",
 	scene_video: "videos",
-	scene_audio: "audio",
 	render: "renders",
 };
 
@@ -31,7 +30,6 @@ export const DEFAULT_CONTENT_TYPE_BY_KIND: Record<AssetKind, string> = {
 	location_sheet: "image/png",
 	keyframe: "image/png",
 	scene_video: "video/mp4",
-	scene_audio: "audio/mpeg",
 	render: "video/mp4",
 };
 

@@ -14,7 +14,6 @@ function makeEntry(sceneId: string, durationSeconds: number): TimelineEntry {
 
 function makeScene(id: string, overrides: Partial<Scene> = {}): Scene {
 	return {
-		audioAssetId: null,
 		createdAt: new Date(),
 		dialogue: null,
 		durationSeconds: 5,
@@ -24,6 +23,7 @@ function makeScene(id: string, overrides: Partial<Scene> = {}): Scene {
 		prompt: `Prompt for ${id}`,
 		projectId: "project-1",
 		speakerName: null,
+		speechCues: null,
 		startKeyframeAssetId: null,
 		status: SceneStatus.VIDEO_READY,
 		subtitleText: null,

@@ -45,6 +45,30 @@ export function useCreateProject() {
 }
 
 /**
+ * Deletes a project (sidebar "Recent" row action). The server cascades the DB
+ * rows and purges the project's R2 objects (project.service.ts). Invalidates
+ * both project list surfaces so the sidebar's "Recent" group and the /projects
+ * grid drop the row on success. The caller (the confirm dialog) owns the
+ * success toast so it can name the specific project; `onError` routes through
+ * the shared mutation-error toast.
+ */
+export function useDeleteProject() {
+	const queryClient = useQueryClient();
+
+	return useMutation(
+		orpc.projects.delete.mutationOptions({
+			onError: (error) => {
+				toastMutationError(error, { title: "Couldn't delete project" });
+			},
+			onSuccess: () => {
+				queryClient.invalidateQueries({ queryKey: orpc.projects.list.key() });
+				queryClient.invalidateQueries({ queryKey: orpc.projects.page.key() });
+			},
+		}),
+	);
+}
+
+/**
  * Detail of one project for the dashboard's Assets section (thumbnails of the
  * most recent project's generated assets). Gated behind `enabled` so the
  * dashboard never fires a query (and its NOT_FOUND toast) when there are no

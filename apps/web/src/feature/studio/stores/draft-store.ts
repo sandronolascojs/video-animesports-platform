@@ -24,14 +24,18 @@ const SCENE_TEXT_FIELDS = [
 
 export type OrderedScene = { entry: TimelineEntry; scene: Scene };
 
-/** Client-side default — `projects.subtitle_style` is `null` until the user (or the plan agent, later) sets one. */
+/** Client-side default — `projects.subtitle_style` is `null` until the user (or the plan agent, later) sets one. `lineHeight`/`maxWidthPercent` match the values `SubtitleOverlay`/`drawSubtitle` already hardcoded before the controls existed (1.2, 90%) — `textShadow` defaults off since the outline stroke already guarantees legibility. */
 export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
 	backgroundColor: "rgba(0, 0, 0, 0.55)",
 	color: "#ffffff",
 	font: "Inter",
 	fontSize: 48,
+	lineHeight: 1.2,
+	maxWidthPercent: 90,
 	outlineColor: "#000000",
 	position: "bottom",
+	textShadow: false,
+	textShadowIntensity: 50,
 	weight: "medium",
 };
 

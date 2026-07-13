@@ -1,0 +1,14 @@
+{
+	"name": "@video-platform-challenge/media-ops",
+	"private": true,
+	"type": "module",
+	"description": "Fastify + ffmpeg HTTP server for the media-ops Cloudflare Container. Extracts the last frame and the audio track from a scene video.",
+	"scripts": {
+		"start": "tsx server.ts"
+	},
+	"dependencies": {
+		"fastify": "catalog:",
+		"tsx": "catalog:",
+		"zod": "catalog:"
+	}
+}

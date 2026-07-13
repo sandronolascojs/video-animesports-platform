@@ -5,7 +5,7 @@ import { AssetKind, AssetStatus } from "@video-platform-challenge/types";
 
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAssetUrl } from "@/feature/studio/hooks/http/use-asset-url";
+import { useAssetUrl } from "@/feature/studio/hooks/http/use-project-asset-urls";
 import { useStudio } from "@/feature/studio/stores/use-studio";
 
 const KIND_LABEL: Record<Asset["kind"], string> = {
@@ -13,7 +13,6 @@ const KIND_LABEL: Record<Asset["kind"], string> = {
 	keyframe: "Keyframe",
 	location_sheet: "Location sheet",
 	render: "Render",
-	scene_audio: "Scene audio",
 	scene_video: "Scene video",
 };
 

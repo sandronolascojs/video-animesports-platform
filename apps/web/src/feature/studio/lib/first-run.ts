@@ -51,24 +51,26 @@ export function isFirstGenerationFailure(
 }
 
 /**
- * Live status copy for the player generating-state (docs §2: "Planning the
- * story…", "Generating keyframes…", "Generating scene N…"). Only ever called
- * while `isFirstGeneration` is true, so `project.status` is always one of
- * draft/planning/storyboard/generating/assembling — never ready/failed.
+ * Coarse generation phase behind the player's generating state (issue #3,
+ * docs/studio-fixes-backlog.md §3): the SINGLE derivation `describeFirstRunStatus`
+ * (copy) and the `GridLoader` pattern (`player-generating-state.tsx`, mark)
+ * both key off, so the mark and the label can never drift out of sync with
+ * each other or with the real project/scene state.
  */
-export function describeFirstRunStatus(
+export type FirstRunPhase = "planning" | "keyframes" | "rendering";
+
+export function getFirstRunPhase(
 	project: Project,
 	scenes: readonly Scene[],
-): string {
+): FirstRunPhase {
 	if (
 		project.status === ProjectStatus.DRAFT ||
 		project.status === ProjectStatus.PLANNING ||
 		project.status === ProjectStatus.STORYBOARD
 	) {
-		return "Planning the story…";
+		return "planning";
 	}
 
-	const total = scenes.length;
 	const activeIndex = scenes.findIndex(
 		(scene) =>
 			scene.status === SceneStatus.KEYFRAME_PENDING ||
@@ -76,11 +78,42 @@ export function describeFirstRunStatus(
 			scene.status === SceneStatus.VIDEO_PENDING,
 	);
 
-	if (total === 0 || activeIndex === -1) {
+	if (
+		activeIndex === -1 ||
+		scenes[activeIndex]?.status !== SceneStatus.VIDEO_PENDING
+	) {
+		return "keyframes";
+	}
+
+	return "rendering";
+}
+
+/**
+ * Live status copy for the player generating-state (docs §2: "Planning the
+ * story…", "Generating keyframes…", "Generating scene N…"). Only ever called
+ * while `isFirstGeneration` is true, so `project.status` is always one of
+ * draft/planning/storyboard/generating/assembling — never ready/failed.
+ * Delegates the phase decision to `getFirstRunPhase` (see above) so this can
+ * never disagree with the loader's pattern about which phase is "live".
+ */
+export function describeFirstRunStatus(
+	project: Project,
+	scenes: readonly Scene[],
+): string {
+	const phase = getFirstRunPhase(project, scenes);
+
+	if (phase === "planning") {
+		return "Planning the story…";
+	}
+
+	if (phase === "keyframes") {
 		return "Generating keyframes…";
 	}
 
-	return scenes[activeIndex]?.status === SceneStatus.VIDEO_PENDING
-		? `Generating scene ${activeIndex + 1} of ${total}…`
-		: "Generating keyframes…";
+	const total = scenes.length;
+	const activeIndex = scenes.findIndex(
+		(scene) => scene.status === SceneStatus.VIDEO_PENDING,
+	);
+
+	return `Generating scene ${activeIndex + 1} of ${total}…`;
 }

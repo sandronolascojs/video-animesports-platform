@@ -7,9 +7,12 @@ export const assetsRouter = {
 	page: protectedProcedure.assets.page.handler(({ context, input }) =>
 		assetService.page({ session: context.session, ...input }),
 	),
-	getDownloadUrl: protectedProcedure.assets.getDownloadUrl.handler(
+	getProjectUrls: protectedProcedure.assets.getProjectUrls.handler(
 		({ context, input }) =>
-			assetService.getDownloadUrl({ session: context.session, ...input }),
+			assetService.getProjectAssetUrls({
+				session: context.session,
+				projectId: input.projectId,
+			}),
 	),
 	createUpload: protectedProcedure.assets.createUpload.handler(
 		({ context, input }) =>

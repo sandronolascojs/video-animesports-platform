@@ -1,7 +1,7 @@
 import { DEFAULT_PAGE_SIZE } from "@video-platform-challenge/types";
 import { Loader2, SlidersHorizontalIcon } from "lucide-react";
 
-import { MediaCardSkeleton } from "@/components/kit/media-card";
+import { MediaCardSkeleton } from "@/components/app/media-card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
