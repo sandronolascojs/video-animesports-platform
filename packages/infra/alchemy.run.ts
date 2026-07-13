@@ -84,17 +84,21 @@ const accountId = await AccountId();
 // TODO: a custom domain would replace this whole precomputation block with
 // a single stable, hand-written origin string per app.
 const cfApi = local ? null : await createCloudflareApi();
+// `computeWorkerDevDomain` returns the BARE workers.dev host (no scheme) —
+// alchemy's own website.ts wraps it as `https://${domain}`. These values are
+// used as full origins/URLs (R2 CORS origins, CORS_ORIGIN, BETTER_AUTH_URL,
+// KIE_CALLBACK_URL base), so prefix the scheme here once.
 const serverUrl = cfApi
-	? await computeWorkerDevDomain(
+	? `https://${await computeWorkerDevDomain(
 			cfApi,
 			app.createPhysicalName("server").toLowerCase(),
-		)
+		)}`
 	: null;
 const webUrl = cfApi
-	? await computeWorkerDevDomain(
+	? `https://${await computeWorkerDevDomain(
 			cfApi,
 			app.createPhysicalName("web").toLowerCase(),
-		)
+		)}`
 	: null;
 
 // R2's CORS check is a literal Origin match (S3-compatible), same as the
