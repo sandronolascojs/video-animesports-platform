@@ -1,6 +1,16 @@
 {
 	"$schema": "https://turbo.build/schema.json",
 	"ui": "tui",
+	// Turbo 2.x runs in STRICT env mode: tasks only see env vars declared here
+	// (plus framework-inferred ones like NEXT_PUBLIC_*). CI passes these through
+	// as job env, so they must be listed or turbo strips them from the task —
+	// which is exactly what left `drizzle-kit migrate`'s DATABASE_URL empty.
+	// passThrough (not `env`) so they never enter the cache hash.
+	"globalPassThroughEnv": [
+		"DATABASE_URL",
+		"SKIP_ENV_VALIDATION",
+		"NEXT_PUBLIC_SERVER_URL"
+	],
 	"tasks": {
 		"build": {
 			"dependsOn": ["^build"],
@@ -27,8 +37,7 @@
 			"cache": false
 		},
 		"db:migrate": {
-			"cache": false,
-			"persistent": true
+			"cache": false
 		},
 		"db:studio": {
 			"cache": false,
