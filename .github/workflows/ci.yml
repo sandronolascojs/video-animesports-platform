@@ -1,14 +1,12 @@
 # CI/CD — ONE pipeline for both gating and deploy. Adapted from plugsy-ai's ci.yml
 # for this repo: Bun + Turborepo, base branch is `development` (there is no `main`).
 #
-#   checks (lint · typecheck · test · build, matrix) ─▶ [push to development only] ─▶ deploy (dev)
+#   checks (lint · typecheck · test · build, matrix) ─▶ [manual dispatch from development] ─▶ deploy (dev)
 #
-# Triggers:
-#   • pull_request → development : runs `checks` only. Blocks the merge when red
-#     (enforce via Settings → Branches → require the "checks" status check).
-#   • push → development          : runs the SAME `checks` first, then `deploy` —
-#       Drizzle migration against the dev Postgres, then `alchemy deploy --stage dev`.
-#   • any other branch            : nothing runs.
+# Triggers: MANUAL ONLY (`workflow_dispatch`). Automatic CI/CD is off — see the `on:` block.
+# Dispatching from `development` runs `checks`, then `deploy` (Drizzle migration against the
+# dev Postgres, then `alchemy deploy --stage dev`). Dispatching from any other branch runs
+# `checks` only, because `deploy` is gated on `refs/heads/development`.
 #
 # Dropped vs plugsy-ai's template (see .github/workflows/README.md for why):
 #   • No Stripe anything (this app has no billing).
@@ -23,13 +21,11 @@
 
 name: CI
 
+# Automatic CI/CD is DISABLED. Nothing runs on push or pull_request — the workflow
+# only runs when triggered by hand (Actions → CI → Run workflow, or `gh workflow run ci.yml`).
+# To re-enable, restore the `pull_request` / `push` triggers on `development`.
 on:
-  pull_request:
-    branches:
-      - development
-  push:
-    branches:
-      - development
+  workflow_dispatch:
 
 # Cancel superseded PR runs; NEVER cancel an in-flight deploy (push).
 concurrency:
